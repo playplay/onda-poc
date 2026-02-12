@@ -1,27 +1,27 @@
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.db import engine, Base
 from app.routers import scrape, posts, analysis
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield
-    await engine.dispose()
-
-
 app = FastAPI(
     title="ScrapTrends API",
     description="LinkedIn Trend Intelligence Tool",
     version="0.1.0",
-    lifespan=lifespan,
 )
+
+_tables_created = False
+
+
+@app.middleware("http")
+async def ensure_tables(request: Request, call_next):
+    global _tables_created
+    if not _tables_created:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        _tables_created = True
+    return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,
@@ -39,3 +39,5 @@ app.include_router(analysis.router, prefix="/api", tags=["analysis"])
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+

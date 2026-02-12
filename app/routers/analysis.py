@@ -37,9 +37,16 @@ async def trigger_analysis(
     if not posts_to_analyze:
         return []
 
-    # Fire all Gemini API calls in parallel
+    # Fire all Gemini API calls in parallel (video + thumbnail + text context)
     api_results = await asyncio.gather(
-        *(call_gemini(post.video_url) for post in posts_to_analyze)
+        *(
+            call_gemini(
+                video_url=post.video_url,
+                thumbnail_url=post.image_url,
+                post_text=post.title,
+            )
+            for post in posts_to_analyze
+        )
     )
 
     # Build ORM objects and batch commit

@@ -106,8 +106,28 @@ async def check_and_process_scrape(db: AsyncSession, job: ScrapeJob) -> None:
 
             video_component = item.get("linkedInVideoComponent") or {}
             has_video = bool(video_component)
-            video_url = video_component.get("thumbnail")
+
+            # Extract thumbnail (always available for video posts)
             image_url = video_component.get("thumbnail")
+
+            # Try to find actual video stream URL from raw data
+            # Apify scrapers may provide it in various fields
+            video_url = (
+                item.get("videoUrl")
+                or item.get("video_url")
+                or item.get("mediaUrl")
+                or item.get("media_url")
+                or video_component.get("streamUrl")
+                or video_component.get("videoUrl")
+            )
+            # Check progressiveStreams (LinkedIn native video format)
+            if not video_url:
+                streams = video_component.get("progressiveStreams") or []
+                if streams:
+                    # Pick highest quality stream
+                    best = max(streams, key=lambda s: s.get("width", 0))
+                    video_url = best.get("url") or best.get("streamUrl")
+
             duration_ms = video_component.get("duration")
             duration_seconds = duration_ms / 1000.0 if duration_ms else None
             content_type = "video" if has_video else "text"
