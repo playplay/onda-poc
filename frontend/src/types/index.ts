@@ -74,6 +74,7 @@ export interface GeminiAnalysis {
   text_language: string | null;
   contains_an_interview_footage: boolean | null;
   video_dynamism: string | null;
+  media_analyzed: string | null;
   full_analysis: Record<string, unknown> | null;
   created_at: string;
 }

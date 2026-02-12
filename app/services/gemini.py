@@ -296,6 +296,7 @@ async def call_gemini(
     # Build content parts
     parts: list[dict] = []
     uploaded_file_name: str | None = None
+    media_analyzed: str = "text_only"
 
     # Try video first
     if video_url:
@@ -312,6 +313,7 @@ async def call_gemini(
                             "fileUri": file_data["uri"],
                         }
                     })
+                    media_analyzed = "video"
                     logger.info(f"Video uploaded to Gemini: {uploaded_file_name}")
 
     # Fallback to thumbnail
@@ -329,6 +331,7 @@ async def call_gemini(
                             "fileUri": file_data["uri"],
                         }
                     })
+                    media_analyzed = "thumbnail"
                     logger.info("Thumbnail uploaded to Gemini as fallback")
 
     # Add text prompt
@@ -368,7 +371,9 @@ async def call_gemini(
             return None
 
         text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-        return json.loads(text)
+        parsed = json.loads(text)
+        parsed["_media_analyzed"] = media_analyzed
+        return parsed
 
     except Exception as e:
         logger.error(f"Gemini API call failed: {e}")
@@ -379,9 +384,11 @@ async def call_gemini(
 
 def build_analysis(post_id: uuid.UUID, parsed: dict) -> GeminiAnalysis:
     """Create a GeminiAnalysis ORM object from parsed Gemini response."""
+    media_analyzed = parsed.pop("_media_analyzed", "text_only")
     return GeminiAnalysis(
         id=uuid.uuid4(),
         post_id=post_id,
+        media_analyzed=media_analyzed,
         business_objective=parsed.get("business_objective"),
         use_case=parsed.get("use_case"),
         audience_target=parsed.get("audience_target"),

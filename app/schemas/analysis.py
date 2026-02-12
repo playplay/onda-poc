@@ -26,6 +26,7 @@ class AnalysisOut(BaseModel):
     text_language: str | None
     contains_an_interview_footage: bool | None
     video_dynamism: str | None
+    media_analyzed: str | None
     full_analysis: dict | None
     created_at: datetime
 

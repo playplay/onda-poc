@@ -68,6 +68,7 @@ class GeminiAnalysis(Base):
     text_language: Mapped[str | None] = mapped_column(String(50), nullable=True)
     contains_an_interview_footage: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     video_dynamism: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    media_analyzed: Mapped[str | None] = mapped_column(String(20), nullable=True)  # video / thumbnail / text_only
 
     full_analysis: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

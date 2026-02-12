@@ -38,7 +38,7 @@ const HEADER_GROUPS = [
   { label: "Strategy", cols: ["Objective", "Use Case", "Audience", "ICP"] },
   { label: "Style", cols: ["Tone", "Content Style", "Story", "Execution"] },
   { label: "Script", cols: ["Hook", "Outline", "CTA"] },
-  { label: "Technical", cols: ["Voice Lang", "Text Lang", "Interview", "Dynamism"] },
+  { label: "Technical", cols: ["Voice Lang", "Text Lang", "Interview", "Dynamism", "Media"] },
 ];
 
 export default function AnalysisTable({ rows, loading }: Props) {
@@ -132,7 +132,7 @@ export default function AnalysisTable({ rows, loading }: Props) {
 
                 {/* Analysis columns */}
                 {pending ? (
-                  <td colSpan={15} className="px-2 py-2 text-xs text-purple-500 italic">
+                  <td colSpan={16} className="px-2 py-2 text-xs text-purple-500 italic">
                     Analyzing…
                   </td>
                 ) : a ? (
@@ -156,9 +156,20 @@ export default function AnalysisTable({ rows, loading }: Props) {
                     <Cell><Badge value={a.text_language} /></Cell>
                     <Cell><Badge value={a.contains_an_interview_footage} /></Cell>
                     <Cell><Badge value={a.video_dynamism} /></Cell>
+                    <Cell>
+                      {a.media_analyzed === "video" ? (
+                        <span className="inline-block bg-green-100 text-green-800 text-[10px] px-1.5 py-0.5 rounded-full font-medium">video</span>
+                      ) : a.media_analyzed === "thumbnail" ? (
+                        <span className="inline-block bg-yellow-100 text-yellow-800 text-[10px] px-1.5 py-0.5 rounded-full font-medium">thumbnail</span>
+                      ) : a.media_analyzed ? (
+                        <span className="inline-block bg-gray-100 text-gray-600 text-[10px] px-1.5 py-0.5 rounded-full font-medium">{a.media_analyzed}</span>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </Cell>
                   </>
                 ) : (
-                  <td colSpan={15} className="px-2 py-2 text-xs text-gray-300">
+                  <td colSpan={16} className="px-2 py-2 text-xs text-gray-300">
                     No analysis
                   </td>
                 )}
