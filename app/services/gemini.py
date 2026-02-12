@@ -1,32 +1,28 @@
 """
 Gemini AI analysis service for video content.
-Uses Google Gemini API directly for native video analysis.
+Uses Gemini REST API directly via httpx (no SDK — keeps lambda under 250MB).
 
 Flow:
-1. Download video from LinkedIn CDN URL via httpx
-2. Upload to Gemini File API (supports up to 2GB)
+1. Download video from LinkedIn CDN URL
+2. Upload to Gemini File API via resumable upload
 3. Wait for server-side processing
 4. Analyze with structured JSON output
-5. Fallback: thumbnail image + post text if video download fails
+5. Fallback: thumbnail image + post text if video fails
 """
 
 import json
 import uuid
-import asyncio
-import tempfile
 import logging
-from pathlib import Path
 
 import httpx
-import google.generativeai as genai
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models.post import Post, GeminiAnalysis
+from app.models.post import GeminiAnalysis
 
 logger = logging.getLogger(__name__)
 
 MODEL = "gemini-2.5-flash"
+BASE_URL = "https://generativelanguage.googleapis.com"
 
 SYSTEM_PROMPT = (
     "Role - Video production specialist\n"
@@ -40,12 +36,11 @@ SYSTEM_PROMPT = (
     "Follow the structured output. Follow the order of properties listed."
 )
 
-# Gemini-native response schema (same 15 fields as before)
 RESPONSE_SCHEMA = {
-    "type": "object",
+    "type": "OBJECT",
     "properties": {
         "business_objective": {
-            "type": "string",
+            "type": "STRING",
             "enum": [
                 "awareness", "engagement", "education", "conversion",
                 "loyalty", "onboarding", "retention", "internal alignment",
@@ -55,7 +50,7 @@ RESPONSE_SCHEMA = {
             ],
         },
         "use_case": {
-            "type": "string",
+            "type": "STRING",
             "enum": [
                 "announce an event", "recap an event",
                 "present a webinar/program", "share internal initiative",
@@ -74,7 +69,7 @@ RESPONSE_SCHEMA = {
             ],
         },
         "audience_target": {
-            "type": "string",
+            "type": "STRING",
             "enum": [
                 "employees (internal video)", "customers", "prospects",
                 "partners", "candidates", "investors", "media",
@@ -83,7 +78,7 @@ RESPONSE_SCHEMA = {
             ],
         },
         "tone_of_voice": {
-            "type": "string",
+            "type": "STRING",
             "enum": [
                 "none", "friendly", "formal", "inspirational", "corporate",
                 "fun", "educational", "dynamic", "empowering", "trustworthy",
@@ -92,7 +87,7 @@ RESPONSE_SCHEMA = {
             ],
         },
         "content_style": {
-            "type": "string",
+            "type": "STRING",
             "enum": [
                 "none", "informative", "narrative/personal journey",
                 "instructional", "entertaining", "persuasive", "reactive",
@@ -101,7 +96,7 @@ RESPONSE_SCHEMA = {
             ],
         },
         "storytelling_approach": {
-            "type": "string",
+            "type": "STRING",
             "description": (
                 "Each video is built around a central storytelling approach. "
                 "Select the category based on the main driver of the narrative.\n"
@@ -116,7 +111,7 @@ RESPONSE_SCHEMA = {
             ],
         },
         "creative_execution": {
-            "type": "string",
+            "type": "STRING",
             "description": (
                 "report presentation / multi-single person snippets / "
                 "q&a solo talking / short documentary / multi-interview snippets / "
@@ -140,7 +135,7 @@ RESPONSE_SCHEMA = {
             ],
         },
         "icp": {
-            "type": "string",
+            "type": "STRING",
             "description": "Ideal Customer Profile of the video creator.",
             "enum": [
                 "community management", "corporate communication",
@@ -150,28 +145,28 @@ RESPONSE_SCHEMA = {
             ],
         },
         "script_hook": {
-            "type": "string",
+            "type": "STRING",
             "description": "The Hook if identified, otherwise 'NONE'.",
         },
-        "script_outline": {"type": "string"},
+        "script_outline": {"type": "STRING"},
         "script_cta": {
-            "type": "string",
+            "type": "STRING",
             "description": "The CTA if identified, otherwise 'NONE'.",
         },
         "voice_language": {
-            "type": "string",
+            "type": "STRING",
             "enum": ["none", "en-us", "fr-fr", "de-de", "others"],
         },
         "text_language": {
-            "type": "string",
+            "type": "STRING",
             "enum": ["en-us", "fr-fr", "de-de", "others", "none"],
         },
         "contains_an_interview_footage": {
-            "type": "boolean",
+            "type": "BOOLEAN",
             "description": "Whether the video includes interview footage.",
         },
         "video_dynamism": {
-            "type": "string",
+            "type": "STRING",
             "description": (
                 "Slow: majority lacks dynamism. "
                 "Medium: majority is dynamic. "
@@ -203,43 +198,81 @@ async def _download_media(url: str, timeout: float = 120.0) -> tuple[bytes, str]
         return None
 
 
-async def _upload_to_gemini(data: bytes, mime_type: str) -> genai.types.File | None:
-    """Upload bytes to Gemini File API and wait for processing."""
-    suffix = ".mp4"
-    if "webm" in mime_type:
-        suffix = ".webm"
-    elif "image" in mime_type:
-        suffix = ".jpg"
-
-    tmp_path = None
+async def _upload_to_gemini(data: bytes, mime_type: str, api_key: str) -> dict | None:
+    """Upload file to Gemini File API via resumable upload. Returns file metadata or None."""
     try:
-        # Write to temp file (genai.upload_file needs a path)
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp.write(data)
-            tmp_path = tmp.name
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            # Step 1: Initiate resumable upload
+            init_resp = await client.post(
+                f"{BASE_URL}/upload/v1beta/files?key={api_key}",
+                headers={
+                    "X-Goog-Upload-Protocol": "resumable",
+                    "X-Goog-Upload-Command": "start",
+                    "X-Goog-Upload-Header-Content-Length": str(len(data)),
+                    "X-Goog-Upload-Header-Content-Type": mime_type,
+                    "Content-Type": "application/json",
+                },
+                json={"file": {"display_name": f"upload-{uuid.uuid4().hex[:8]}"}},
+            )
+            init_resp.raise_for_status()
+            upload_url = init_resp.headers.get("X-Goog-Upload-URL")
+            if not upload_url:
+                logger.warning("No upload URL in Gemini response")
+                return None
 
-        # Upload (sync call wrapped for async)
-        uploaded = await asyncio.to_thread(
-            genai.upload_file, path=tmp_path, mime_type=mime_type
-        )
+            # Step 2: Upload the actual bytes
+            upload_resp = await client.put(
+                upload_url,
+                headers={
+                    "X-Goog-Upload-Command": "upload, finalize",
+                    "X-Goog-Upload-Offset": "0",
+                    "Content-Type": mime_type,
+                },
+                content=data,
+            )
+            upload_resp.raise_for_status()
+            file_info = upload_resp.json().get("file", {})
+            file_name = file_info.get("name")
+            if not file_name:
+                logger.warning("No file name in upload response")
+                return None
 
-        # Wait for processing (videos need server-side processing)
-        while uploaded.state.name == "PROCESSING":
-            await asyncio.sleep(2)
-            uploaded = await asyncio.to_thread(genai.get_file, name=uploaded.name)
+            # Step 3: Poll until file is ACTIVE
+            for _ in range(60):  # max ~2 min
+                status_resp = await client.get(
+                    f"{BASE_URL}/v1beta/{file_name}?key={api_key}"
+                )
+                status_resp.raise_for_status()
+                file_data = status_resp.json()
+                state = file_data.get("state", "")
+                if state == "ACTIVE":
+                    return file_data
+                if state != "PROCESSING":
+                    logger.warning(f"Gemini file state: {state}")
+                    return None
+                await _sleep(2)
 
-        if uploaded.state.name == "ACTIVE":
-            return uploaded
-
-        logger.warning(f"Gemini file processing failed: state={uploaded.state.name}")
-        return None
+            logger.warning("Gemini file processing timed out")
+            return None
 
     except Exception as e:
         logger.warning(f"Gemini file upload failed: {e}")
         return None
-    finally:
-        if tmp_path:
-            Path(tmp_path).unlink(missing_ok=True)
+
+
+async def _delete_gemini_file(file_name: str, api_key: str) -> None:
+    """Delete uploaded file from Gemini storage."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.delete(f"{BASE_URL}/v1beta/{file_name}?key={api_key}")
+    except Exception:
+        pass
+
+
+async def _sleep(seconds: float) -> None:
+    """Async sleep helper."""
+    import asyncio
+    await asyncio.sleep(seconds)
 
 
 async def call_gemini(
@@ -248,35 +281,38 @@ async def call_gemini(
     post_text: str | None = None,
 ) -> dict | None:
     """
-    Analyze a LinkedIn video post with Gemini.
+    Analyze a LinkedIn video post with Gemini REST API.
 
     Priority:
-    1. Download + upload actual video → full native video analysis
-    2. Download + upload thumbnail image → visual analysis from frame
-    3. Post text only → text-based analysis (last resort)
+    1. Download + upload actual video -> full native video analysis
+    2. Download + upload thumbnail image -> visual analysis from frame
+    3. Post text only -> text-based analysis (last resort)
     """
     api_key = settings.GEMINI_API_KEY
     if not api_key:
         logger.error("GEMINI_API_KEY not set")
         return None
 
-    genai.configure(api_key=api_key)
-
     # Build content parts
-    parts: list = []
-    uploaded_file = None
+    parts: list[dict] = []
+    uploaded_file_name: str | None = None
 
     # Try video first
     if video_url:
         media = await _download_media(video_url, timeout=120.0)
         if media:
             data, content_type = media
-            # Only upload if it looks like actual video
             if "video" in content_type or len(data) > 500_000:
-                uploaded_file = await _upload_to_gemini(data, content_type)
-                if uploaded_file:
-                    parts.append(uploaded_file)
-                    logger.info(f"Video uploaded to Gemini: {uploaded_file.name}")
+                file_data = await _upload_to_gemini(data, content_type, api_key)
+                if file_data:
+                    uploaded_file_name = file_data["name"]
+                    parts.append({
+                        "fileData": {
+                            "mimeType": file_data.get("mimeType", content_type),
+                            "fileUri": file_data["uri"],
+                        }
+                    })
+                    logger.info(f"Video uploaded to Gemini: {uploaded_file_name}")
 
     # Fallback to thumbnail
     if not parts and thumbnail_url:
@@ -284,44 +320,60 @@ async def call_gemini(
         if media:
             data, content_type = media
             if "image" in content_type:
-                uploaded_file = await _upload_to_gemini(data, content_type)
-                if uploaded_file:
-                    parts.append(uploaded_file)
+                file_data = await _upload_to_gemini(data, content_type, api_key)
+                if file_data:
+                    uploaded_file_name = file_data["name"]
+                    parts.append({
+                        "fileData": {
+                            "mimeType": file_data.get("mimeType", content_type),
+                            "fileUri": file_data["uri"],
+                        }
+                    })
                     logger.info("Thumbnail uploaded to Gemini as fallback")
 
-    # Add text context
+    # Add text prompt
     prompt_lines = ["Analyze this LinkedIn video post:"]
     if post_text:
         prompt_lines.append(f"\nPost text/commentary:\n{post_text}")
     if not parts:
         prompt_lines.append("\n(No video or image available — analyze based on text only)")
-    parts.append("\n".join(prompt_lines))
+    parts.append({"text": "\n".join(prompt_lines)})
 
     try:
-        model = genai.GenerativeModel(
-            model_name=MODEL,
-            system_instruction=SYSTEM_PROMPT,
-            generation_config=genai.GenerationConfig(
-                response_mime_type="application/json",
-                response_schema=RESPONSE_SCHEMA,
-            ),
-        )
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                f"{BASE_URL}/v1beta/models/{MODEL}:generateContent?key={api_key}",
+                json={
+                    "systemInstruction": {
+                        "parts": [{"text": SYSTEM_PROMPT}]
+                    },
+                    "contents": [{"parts": parts}],
+                    "generationConfig": {
+                        "responseMimeType": "application/json",
+                        "responseSchema": RESPONSE_SCHEMA,
+                    },
+                },
+            )
+            resp.raise_for_status()
+            result = resp.json()
 
-        response = await asyncio.to_thread(
-            model.generate_content, parts
-        )
+        # Clean up uploaded file
+        if uploaded_file_name:
+            await _delete_gemini_file(uploaded_file_name, api_key)
 
-        # Clean up uploaded file from Gemini storage
-        if uploaded_file:
-            try:
-                await asyncio.to_thread(genai.delete_file, name=uploaded_file.name)
-            except Exception:
-                pass
+        # Extract text from response
+        candidates = result.get("candidates", [])
+        if not candidates:
+            logger.error(f"No candidates in Gemini response: {result}")
+            return None
 
-        return json.loads(response.text)
+        text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        return json.loads(text)
 
     except Exception as e:
         logger.error(f"Gemini API call failed: {e}")
+        if uploaded_file_name:
+            await _delete_gemini_file(uploaded_file_name, api_key)
         return None
 
 
