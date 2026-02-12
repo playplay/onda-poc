@@ -30,3 +30,15 @@ class AnalysisOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AnalysisStartOut(BaseModel):
+    total: int
+    pending: int
+
+
+class AnalysisProgressOut(BaseModel):
+    processed: int
+    total: int
+    all_done: bool
+    current_analysis: AnalysisOut | None = None

@@ -17,9 +17,10 @@ class ScrapeJob(Base):
     content_type_filter: Mapped[str | None] = mapped_column(String(50), nullable=True)
     is_corporate: Mapped[bool] = mapped_column(Boolean, default=False)
     max_results: Mapped[int] = mapped_column(Integer, default=50)
-    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending/running/completed/failed
+    status: Mapped[str] = mapped_column(String(30), default="pending")  # pending/running/downloading_videos/completed/failed
     total_posts: Mapped[int | None] = mapped_column(Integer, nullable=True)
     apify_run_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    video_download_run_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

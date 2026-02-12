@@ -14,9 +14,10 @@ export interface ScrapeJob {
   content_type_filter: string | null;
   is_corporate: boolean;
   max_results: number;
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "running" | "downloading_videos" | "completed" | "failed";
   total_posts: number | null;
   apify_run_id: string | null;
+  video_download_run_id: string | null;
   error_message: string | null;
   created_at: string;
   completed_at: string | null;
@@ -75,6 +76,20 @@ export interface GeminiAnalysis {
   video_dynamism: string | null;
   full_analysis: Record<string, unknown> | null;
   created_at: string;
+}
+
+// --- Analysis progress types ---
+
+export interface AnalysisStartResult {
+  total: number;
+  pending: number;
+}
+
+export interface AnalysisProgressResult {
+  processed: number;
+  total: number;
+  all_done: boolean;
+  current_analysis: GeminiAnalysis | null;
 }
 
 // --- Analysis Modal types ---

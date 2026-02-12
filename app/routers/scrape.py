@@ -7,6 +7,7 @@ from app.db import get_db
 from app.models.scrape_job import ScrapeJob
 from app.schemas.scrape import ScrapeRequest, ScrapeJobOut
 from app.services.apify_scraper import start_scrape, check_and_process_scrape
+from app.services.video_downloader import check_and_process_video_download
 
 router = APIRouter()
 
@@ -48,6 +49,11 @@ async def get_scrape_status(
     # If still running, check if Apify is done and process results
     if job.status == "running":
         await check_and_process_scrape(db, job)
+        await db.refresh(job)
+
+    # If downloading videos, check if video download is done
+    if job.status == "downloading_videos":
+        await check_and_process_video_download(db, job)
         await db.refresh(job)
 
     return job

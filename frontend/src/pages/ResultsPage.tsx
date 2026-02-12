@@ -4,7 +4,8 @@ import {
   getScrapeStatus,
   getPosts,
   getRanking,
-  triggerAnalysis,
+  startAnalysis,
+  processNextAnalysis,
   getAnalysis,
 } from "../api/client";
 import type { ScrapeJob, Post, RankedTrend, GeminiAnalysis } from "../types";
@@ -67,7 +68,7 @@ export default function ResultsPage() {
     return () => clearInterval(interval);
   }, [jobId]);
 
-  // Launch analysis (button click -> loader)
+  // Launch analysis: one-at-a-time processing loop
   const handleLaunchAnalysis = useCallback(
     async (rank: number, postIds: string[]) => {
       setAnalysisStatus((prev) => ({ ...prev, [rank]: "analyzing" }));
@@ -87,16 +88,26 @@ export default function ResultsPage() {
           });
         }
 
-        // Trigger analysis for posts that don't have results yet
+        // Start analysis (returns counts)
         const existingPostIds = new Set(existing.map((a) => a.post_id));
         const toAnalyze = postIds.filter((id) => !existingPostIds.has(id));
 
         if (toAnalyze.length > 0) {
-          const results = await triggerAnalysis(toAnalyze);
-          setAnalyses((prev) => {
-            const ids = new Set(prev.map((a) => a.id));
-            return [...prev, ...results.filter((a) => !ids.has(a.id))];
-          });
+          await startAnalysis(toAnalyze);
+
+          // Process one post at a time in a loop
+          let done = false;
+          while (!done) {
+            const progress = await processNextAnalysis(toAnalyze);
+            if (progress.current_analysis) {
+              setAnalyses((prev) => {
+                const ids = new Set(prev.map((a) => a.id));
+                if (ids.has(progress.current_analysis!.id)) return prev;
+                return [...prev, progress.current_analysis!];
+              });
+            }
+            done = progress.all_done;
+          }
         }
 
         setAnalysisStatus((prev) => ({ ...prev, [rank]: "done" }));
@@ -154,12 +165,12 @@ export default function ResultsPage() {
                 : "bg-yellow-100 text-yellow-800"
             }`}
           >
-            {job.status}
+            {job.status === "downloading_videos" ? "downloading videos" : job.status}
           </span>
         </div>
       </div>
 
-      {/* Loading state */}
+      {/* Loading state: scraping */}
       {(job.status === "pending" || job.status === "running") && (
         <div className="bg-blue-50 rounded-lg p-8 text-center">
           <div className="animate-spin inline-block w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full mb-3" />
@@ -168,6 +179,20 @@ export default function ResultsPage() {
           </p>
           <p className="text-blue-500 text-sm mt-1">
             This may take a few minutes depending on the number of results.
+          </p>
+        </div>
+      )}
+
+      {/* Loading state: downloading videos */}
+      {job.status === "downloading_videos" && (
+        <div className="bg-purple-50 rounded-lg p-8 text-center">
+          <div className="animate-spin inline-block w-8 h-8 border-3 border-purple-600 border-t-transparent rounded-full mb-3" />
+          <p className="text-purple-700 font-medium">
+            Downloading video URLs...
+          </p>
+          <p className="text-purple-500 text-sm mt-1">
+            Fetching direct MP4 links for {job.total_posts ?? 0} video posts.
+            This may take a few minutes.
           </p>
         </div>
       )}

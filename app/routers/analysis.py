@@ -1,4 +1,3 @@
-import asyncio
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,61 +6,94 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.models.post import Post, GeminiAnalysis
-from app.schemas.analysis import AnalysisRequest, AnalysisOut
+from app.schemas.analysis import (
+    AnalysisRequest,
+    AnalysisOut,
+    AnalysisStartOut,
+    AnalysisProgressOut,
+)
 from app.services.gemini import call_gemini, build_analysis
 
 router = APIRouter()
 
 
-@router.post("/analysis", response_model=list[AnalysisOut])
-async def trigger_analysis(
+@router.post("/analysis", response_model=AnalysisStartOut)
+async def start_analysis(
     req: AnalysisRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger Gemini analysis on selected posts (parallel API calls)."""
-    # Gather posts that need analysis
-    posts_to_analyze: list[Post] = []
+    """Start analysis: count posts that need analysis. Returns immediately."""
+    total = 0
+    pending = 0
+
     for post_id in req.post_ids:
         post = await db.get(Post, post_id)
-        if not post or not post.video_url:
+        if not post:
             continue
+
+        total += 1
 
         existing = await db.execute(
             select(GeminiAnalysis).where(GeminiAnalysis.post_id == post_id)
         )
-        if existing.scalar_one_or_none():
-            continue
+        if not existing.scalar_one_or_none():
+            pending += 1
 
-        posts_to_analyze.append(post)
+    return AnalysisStartOut(total=total, pending=pending)
 
-    if not posts_to_analyze:
-        return []
 
-    # Fire all Gemini API calls in parallel (video + thumbnail + text context)
-    api_results = await asyncio.gather(
-        *(
-            call_gemini(
-                video_url=post.video_url,
-                thumbnail_url=post.image_url,
-                post_text=post.title,
-            )
-            for post in posts_to_analyze
+@router.post("/analysis/process-next", response_model=AnalysisProgressOut)
+async def process_next_analysis(
+    req: AnalysisRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Process 1 unanalyzed post from the given list. Call in a loop until all_done."""
+    total = len(req.post_ids)
+    processed = 0
+
+    # Find next unanalyzed post
+    next_post: Post | None = None
+    for post_id in req.post_ids:
+        existing = await db.execute(
+            select(GeminiAnalysis).where(GeminiAnalysis.post_id == post_id)
         )
+        if existing.scalar_one_or_none():
+            processed += 1
+        elif next_post is None:
+            post = await db.get(Post, post_id)
+            if post:
+                next_post = post
+
+    if next_post is None:
+        return AnalysisProgressOut(
+            processed=processed,
+            total=total,
+            all_done=True,
+            current_analysis=None,
+        )
+
+    # Analyze this one post
+    parsed = await call_gemini(
+        video_url=next_post.video_url,
+        thumbnail_url=next_post.image_url,
+        post_text=next_post.title,
     )
 
-    # Build ORM objects and batch commit
-    results: list[GeminiAnalysis] = []
-    for post, parsed in zip(posts_to_analyze, api_results):
-        if parsed is None:
-            continue
-        analysis = build_analysis(post.id, parsed)
+    current_analysis = None
+    if parsed:
+        analysis = build_analysis(next_post.id, parsed)
         db.add(analysis)
-        results.append(analysis)
-
-    if results:
         await db.commit()
+        current_analysis = analysis
 
-    return results
+    processed += 1
+
+    return AnalysisProgressOut(
+        processed=processed,
+        total=total,
+        all_done=(processed >= total),
+        current_analysis=AnalysisOut.model_validate(current_analysis) if current_analysis else None,
+    )
 
 
 @router.get("/analysis/{post_id}", response_model=AnalysisOut | None)

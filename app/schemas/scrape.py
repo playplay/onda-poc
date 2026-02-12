@@ -23,6 +23,7 @@ class ScrapeJobOut(BaseModel):
     status: str
     total_posts: int | None
     apify_run_id: str | None
+    video_download_run_id: str | None
     error_message: str | None
     created_at: datetime
     completed_at: datetime | None

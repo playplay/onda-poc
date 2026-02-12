@@ -20,6 +20,7 @@ from app.models.scrape_job import ScrapeJob
 from app.services.classifier import classify_format_family
 from app.services.industry_codes import names_to_urns
 from app.services.ranking import compute_engagement_score
+from app.services.video_downloader import start_video_download
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,7 @@ async def check_and_process_scrape(db: AsyncSession, job: ScrapeJob) -> None:
         )
 
         # Map results to Post models
+        created_posts: list[Post] = []
         for item in dataset_items:
             social = item.get("social_details") or {}
             actor_info = item.get("actor") or {}
@@ -178,10 +180,24 @@ async def check_and_process_scrape(db: AsyncSession, job: ScrapeJob) -> None:
                 raw_data=item,
             )
             db.add(post)
+            created_posts.append(post)
 
         job.total_posts = len(dataset_items)
-        job.status = "completed"
-        job.completed_at = datetime.utcnow()
+
+        # Auto-trigger video download for video posts
+        video_post_urls = [
+            p.post_url for p in created_posts
+            if p.content_type == "video" and p.post_url
+        ]
+        if video_post_urls:
+            # Commit posts first so they're in DB before video download starts
+            await db.commit()
+            await start_video_download(db, job, video_post_urls)
+            # start_video_download sets status to "downloading_videos" and commits
+            return
+        else:
+            job.status = "completed"
+            job.completed_at = datetime.utcnow()
 
     except Exception as e:
         job.status = "failed"

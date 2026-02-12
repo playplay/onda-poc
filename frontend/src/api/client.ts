@@ -5,6 +5,8 @@ import type {
   Post,
   RankedTrend,
   GeminiAnalysis,
+  AnalysisStartResult,
+  AnalysisProgressResult,
 } from "../types";
 
 const api = axios.create({
@@ -47,12 +49,22 @@ export async function getRanking(
   return data;
 }
 
-export async function triggerAnalysis(
+export async function startAnalysis(
   postIds: string[]
-): Promise<GeminiAnalysis[]> {
-  const { data } = await api.post<GeminiAnalysis[]>("/analysis", {
+): Promise<AnalysisStartResult> {
+  const { data } = await api.post<AnalysisStartResult>("/analysis", {
     post_ids: postIds,
   });
+  return data;
+}
+
+export async function processNextAnalysis(
+  postIds: string[]
+): Promise<AnalysisProgressResult> {
+  const { data } = await api.post<AnalysisProgressResult>(
+    "/analysis/process-next",
+    { post_ids: postIds }
+  );
   return data;
 }
 
