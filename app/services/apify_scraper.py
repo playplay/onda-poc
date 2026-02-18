@@ -26,7 +26,7 @@ from app.services.video_downloader import start_video_download
 logger = logging.getLogger(__name__)
 
 ACTOR_ID = "powerai~linkedin-posts-search-scraper"
-MAX_RESULTS_PER_ACCOUNT = 5
+MAX_RESULTS_PER_ACCOUNT = 3
 TOP_N = 10
 RECENT_DAYS = 30
 
