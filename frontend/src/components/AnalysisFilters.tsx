@@ -23,8 +23,8 @@ export default function AnalysisFilters({ filters, onChange, onReset }: Props) {
           onChange={(e) => onChange(field, e.target.value)}
           className={`text-xs border rounded px-2 py-1.5 ${
             filters[field]
-              ? "border-purple-400 bg-purple-50 text-purple-700"
-              : "border-gray-300 text-gray-600"
+              ? "border-accent-400 bg-accent-50 text-accent-700"
+              : "border-gray-200 text-gray-500"
           }`}
         >
           <option value="">{ANALYSIS_FILTER_LABELS[field]}</option>
@@ -38,7 +38,7 @@ export default function AnalysisFilters({ filters, onChange, onReset }: Props) {
       {hasActive && (
         <button
           onClick={onReset}
-          className="text-xs text-gray-500 hover:text-gray-700 underline ml-1"
+          className="text-xs text-gray-400 hover:text-gray-600 underline ml-1"
         >
           Reset all
         </button>

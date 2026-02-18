@@ -1,22 +1,38 @@
 export interface ScrapeRequest {
-  search_query: string;
-  sector: string | null;
-  content_type_filter: string | null;
-  is_corporate: boolean;
-  organization: string | null;
-  max_results: number;
+  sector: string;
+}
+
+export interface WatchedAccount {
+  id: string;
+  name: string;
+  type: "company" | "persona";
+  linkedin_url: string;
+  sector: string;
+  created_at: string;
+}
+
+export interface WatchedAccountCreate {
+  name: string;
+  type: "company" | "persona";
+  linkedin_url: string;
+  sector: string;
+}
+
+export interface WatchedAccountUpdate {
+  name?: string;
+  type?: "company" | "persona";
+  linkedin_url?: string;
+  sector?: string;
 }
 
 export interface ScrapeJob {
   id: string;
   search_query: string;
   sector: string | null;
-  content_type_filter: string | null;
-  is_corporate: boolean;
-  max_results: number;
   status: "pending" | "running" | "downloading_videos" | "completed" | "failed";
   total_posts: number | null;
   apify_run_id: string | null;
+  apify_run_ids: string[] | null;
   video_download_run_id: string | null;
   error_message: string | null;
   created_at: string;
@@ -93,11 +109,24 @@ export interface AnalysisProgressResult {
   current_analysis: GeminiAnalysis | null;
 }
 
-// --- Analysis Modal types ---
+// --- Analysis table types ---
 
 export interface AnalysisRow {
   post: Post;
   analysis: GeminiAnalysis | null;
+}
+
+// --- Trend detail types ---
+
+export interface TrendDetailResponse {
+  trend: {
+    rank: number;
+    format_family: string;
+    post_count: number;
+    avg_engagement_score: number;
+  } | null;
+  posts: Post[];
+  analyses: GeminiAnalysis[];
 }
 
 export const ANALYSIS_FILTERABLE_FIELDS = [

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Gemini AI analysis service for video content.
 Uses Gemini REST API directly via httpx (no SDK — keeps lambda under 250MB).

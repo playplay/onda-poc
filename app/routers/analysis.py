@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,6 +17,20 @@ from app.schemas.analysis import (
 from app.services.gemini import call_gemini, build_analysis
 
 router = APIRouter()
+
+
+@router.get("/analysis", response_model=list[AnalysisOut])
+async def list_analyses(
+    scrape_job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all Gemini analyses for posts in a scrape job."""
+    result = await db.execute(
+        select(GeminiAnalysis)
+        .join(Post, GeminiAnalysis.post_id == Post.id)
+        .where(Post.scrape_job_id == scrape_job_id)
+    )
+    return list(result.scalars().all())
 
 
 @router.post("/analysis", response_model=AnalysisStartOut)

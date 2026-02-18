@@ -7,6 +7,10 @@ import type {
   GeminiAnalysis,
   AnalysisStartResult,
   AnalysisProgressResult,
+  TrendDetailResponse,
+  WatchedAccount,
+  WatchedAccountCreate,
+  WatchedAccountUpdate,
 } from "../types";
 
 const api = axios.create({
@@ -77,4 +81,85 @@ export async function getAnalysis(
   } catch {
     return null;
   }
+}
+
+export async function getAnalysesByJob(
+  jobId: string
+): Promise<GeminiAnalysis[]> {
+  const { data } = await api.get<GeminiAnalysis[]>("/analysis", {
+    params: { scrape_job_id: jobId },
+  });
+  return data;
+}
+
+export async function getTrendDetail(
+  jobId: string,
+  rank: number
+): Promise<TrendDetailResponse> {
+  const { data } = await api.get<TrendDetailResponse>(
+    `/trends/${jobId}/rank/${rank}/posts`
+  );
+  return data;
+}
+
+// --- Accounts ---
+
+export async function getSectors(): Promise<string[]> {
+  const { data } = await api.get<string[]>("/accounts/sectors");
+  return data;
+}
+
+export async function getAccounts(sector?: string): Promise<WatchedAccount[]> {
+  const { data } = await api.get<WatchedAccount[]>("/accounts", {
+    params: sector ? { sector } : {},
+  });
+  return data;
+}
+
+export async function createAccount(body: WatchedAccountCreate): Promise<WatchedAccount> {
+  const { data } = await api.post<WatchedAccount>("/accounts", body);
+  return data;
+}
+
+export async function updateAccount(id: string, body: WatchedAccountUpdate): Promise<WatchedAccount> {
+  const { data } = await api.put<WatchedAccount>(`/accounts/${id}`, body);
+  return data;
+}
+
+export async function deleteAccount(id: string): Promise<void> {
+  await api.delete(`/accounts/${id}`);
+}
+
+export function streamTrendSummary(
+  jobId: string,
+  rank: number,
+  onChunk: (text: string) => void,
+  onDone: () => void,
+  onError: (msg: string) => void
+): () => void {
+  const eventSource = new EventSource(`/api/trends/${jobId}/rank/${rank}/summary`);
+
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type === "chunk") {
+        onChunk(data.content);
+      } else if (data.type === "done") {
+        onDone();
+        eventSource.close();
+      } else if (data.type === "error") {
+        onError(data.message);
+        eventSource.close();
+      }
+    } catch {
+      // ignore parse errors
+    }
+  };
+
+  eventSource.onerror = () => {
+    onError("Connection lost");
+    eventSource.close();
+  };
+
+  return () => eventSource.close();
 }

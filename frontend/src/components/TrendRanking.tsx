@@ -1,5 +1,4 @@
-import { useState } from "react";
-import type { RankedTrend } from "../types";
+import type { RankedTrend, GeminiAnalysis } from "../types";
 import { getEngagementLabel } from "../utils/engagement";
 
 export type AnalysisStatus = "idle" | "analyzing" | "done" | "error";
@@ -7,9 +6,10 @@ export type AnalysisStatus = "idle" | "analyzing" | "done" | "error";
 interface Props {
   trends: RankedTrend[];
   allPostScores?: number[];
+  analyses?: GeminiAnalysis[];
   analysisStatus?: Record<number, AnalysisStatus>;
   onLaunchAnalysis?: (rank: number, postIds: string[]) => void;
-  onViewAnalysis?: (rank: number, postIds: string[]) => void;
+  onNavigateToTrend?: (rank: number) => void;
 }
 
 const FAMILY_LABELS: Record<string, string> = {
@@ -20,158 +20,180 @@ const FAMILY_LABELS: Record<string, string> = {
   unknown: "Unknown",
 };
 
+function getMode(values: (string | null | undefined)[]): string | null {
+  const counts = new Map<string, number>();
+  for (const v of values) {
+    if (v) counts.set(v, (counts.get(v) || 0) + 1);
+  }
+  let max = 0;
+  let result: string | null = null;
+  for (const [k, c] of counts) {
+    if (c > max) {
+      max = c;
+      result = k;
+    }
+  }
+  return result;
+}
+
 export default function TrendRanking({
   trends,
   allPostScores,
+  analyses = [],
   analysisStatus = {},
   onLaunchAnalysis,
-  onViewAnalysis,
+  onNavigateToTrend,
 }: Props) {
-  const [expanded, setExpanded] = useState<number | null>(null);
-
-  // Fallback: derive scores from top_posts if allPostScores not provided
   const scores =
     allPostScores && allPostScores.length > 0
       ? allPostScores
       : trends.flatMap((t) => t.top_posts.map((p) => p.engagement_score));
 
   if (trends.length === 0) {
-    return <p className="text-gray-500 text-center py-8">No trends yet.</p>;
+    return <p className="text-gray-400 text-center py-8 text-sm">No trends yet.</p>;
+  }
+
+  const analysisMap = new Map<string, GeminiAnalysis>();
+  for (const a of analyses) {
+    analysisMap.set(a.post_id, a);
   }
 
   return (
     <div className="space-y-3">
-      <h3 className="text-lg font-semibold">Top Trends by Format</h3>
+      <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wider">Top Trends by Format</h3>
       {trends.map((trend) => {
-        const isOpen = expanded === trend.rank;
         const videoPostIds = trend.top_posts
           .filter((p) => p.video_url)
           .map((p) => p.id);
+        const allPostIds = trend.top_posts.map((p) => p.id);
         const avgEng = getEngagementLabel(trend.avg_engagement_score, scores);
         const status = analysisStatus[trend.rank] ?? "idle";
+
+        const relevantAnalyses = allPostIds
+          .map((id) => analysisMap.get(id))
+          .filter((a): a is GeminiAnalysis => !!a);
+
+        const primaryUseCase = getMode(relevantAnalyses.map((a) => a.use_case));
+        const businessObjective = getMode(relevantAnalyses.map((a) => a.business_objective));
+        const creativeExecution = getMode(relevantAnalyses.map((a) => a.creative_execution));
+        const hasAnalysis = relevantAnalyses.length > 0;
 
         return (
           <div
             key={trend.rank}
-            className={`border rounded-lg overflow-hidden ${
+            className={`border rounded-lg bg-white p-5 transition-colors ${
               trend.rank <= 3
-                ? "border-yellow-400 bg-yellow-50"
-                : "border-gray-200 bg-white"
-            }`}
+                ? "border-l-4 border-l-accent-400 border-t-gray-200 border-r-gray-200 border-b-gray-200"
+                : "border-gray-200"
+            } ${onNavigateToTrend && status === "done" ? "hover:border-gray-300 cursor-pointer" : ""}`}
+            onClick={() => {
+              if (onNavigateToTrend && status === "done") {
+                onNavigateToTrend(trend.rank);
+              }
+            }}
           >
-            <div
-              className="flex items-center justify-between p-4 cursor-pointer"
-              onClick={() => setExpanded(isOpen ? null : trend.rank)}
-            >
+            <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
                 <span
                   className={`text-2xl font-bold ${
-                    trend.rank <= 3 ? "text-yellow-600" : "text-gray-400"
+                    trend.rank <= 3 ? "text-accent-500" : "text-gray-300"
                   }`}
                 >
                   #{trend.rank}
                 </span>
                 <div>
-                  <div className="font-medium">
+                  <div className="font-medium text-gray-900">
                     {FAMILY_LABELS[trend.format_family] || trend.format_family}
                   </div>
-                  <div className="text-sm text-gray-500 flex items-center gap-2">
-                    {trend.post_count} posts · Avg engagement:{" "}
-                    <span
-                      className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${avgEng.className}`}
-                    >
-                      {avgEng.label}
-                    </span>
+                  <div className="text-xs text-gray-400 mt-0.5">
+                    {trend.post_count} posts
                   </div>
                 </div>
               </div>
-              <span className="text-gray-400">{isOpen ? "▲" : "▼"}</span>
+              <span
+                className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${avgEng.className}`}
+              >
+                {avgEng.label}
+              </span>
             </div>
 
-            {isOpen && (
-              <div className="border-t px-4 pb-4">
-                <ul className="mt-2 space-y-2">
-                  {trend.top_posts.map((post) => {
-                    const eng = getEngagementLabel(
-                      post.engagement_score,
-                      scores
-                    );
-                    return (
-                      <li
-                        key={post.id}
-                        className="flex items-center justify-between text-sm"
-                      >
-                        <div className="truncate max-w-md flex items-center gap-2">
-                          {post.title?.slice(0, 60) || "—"}
-                          <span
-                            className={`inline-block text-xs px-1.5 py-0.5 rounded-full font-medium shrink-0 ${eng.className}`}
-                          >
-                            {eng.label}
-                          </span>
-                        </div>
-                        {post.post_url && (
-                          <a
-                            href={post.post_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:underline ml-2 shrink-0"
-                          >
-                            View
-                          </a>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-
-                {videoPostIds.length > 0 && (
-                  <div className="mt-3">
-                    {status === "idle" && onLaunchAnalysis && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onLaunchAnalysis(trend.rank, videoPostIds);
-                        }}
-                        className="bg-purple-600 text-white text-sm px-4 py-1.5 rounded hover:bg-purple-700"
-                      >
-                        Launch AI Analysis ({videoPostIds.length} videos)
-                      </button>
-                    )}
-                    {status === "analyzing" && (
-                      <button
-                        disabled
-                        className="bg-purple-500 text-white text-sm px-4 py-1.5 rounded opacity-80 flex items-center gap-2"
-                      >
-                        <span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" />
-                        Analyzing...
-                      </button>
-                    )}
-                    {status === "done" && onViewAnalysis && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onViewAnalysis(trend.rank, videoPostIds);
-                        }}
-                        className="bg-green-600 text-white text-sm px-4 py-1.5 rounded hover:bg-green-700"
-                      >
-                        See Analysis
-                      </button>
-                    )}
-                    {status === "error" && onLaunchAnalysis && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onLaunchAnalysis(trend.rank, videoPostIds);
-                        }}
-                        className="bg-red-600 text-white text-sm px-4 py-1.5 rounded hover:bg-red-700"
-                      >
-                        Retry Analysis
-                      </button>
-                    )}
-                  </div>
+            {hasAnalysis && (
+              <div className="mt-3 space-y-2">
+                {primaryUseCase && (
+                  <p className="text-sm text-gray-600">
+                    <span className="text-gray-400">Main use case:</span>{" "}
+                    <span className="font-medium">{primaryUseCase}</span>
+                  </p>
                 )}
+                <div className="flex flex-wrap gap-1.5">
+                  {businessObjective && (
+                    <span className="inline-block bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">
+                      {businessObjective}
+                    </span>
+                  )}
+                  {creativeExecution && (
+                    <span className="inline-block bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">
+                      {creativeExecution}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
+
+            {!hasAnalysis && status === "idle" && (
+              <p className="mt-3 text-xs text-gray-400">
+                Run analysis to see insights
+              </p>
+            )}
+
+            <div className="mt-4 flex items-center gap-2">
+              {videoPostIds.length > 0 && (
+                <>
+                  {status === "idle" && onLaunchAnalysis && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onLaunchAnalysis(trend.rank, videoPostIds);
+                      }}
+                      className="bg-gray-900 text-white text-xs px-4 py-1.5 rounded hover:bg-gray-800 transition-colors"
+                    >
+                      Launch Analysis ({videoPostIds.length} videos)
+                    </button>
+                  )}
+                  {status === "analyzing" && (
+                    <button
+                      disabled
+                      className="bg-gray-200 text-gray-500 text-xs px-4 py-1.5 rounded flex items-center gap-2"
+                    >
+                      <span className="animate-spin inline-block w-3 h-3 border-2 border-gray-500 border-t-transparent rounded-full" />
+                      Analyzing...
+                    </button>
+                  )}
+                  {status === "done" && onNavigateToTrend && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onNavigateToTrend(trend.rank);
+                      }}
+                      className="bg-gray-900 text-white text-xs px-4 py-1.5 rounded hover:bg-gray-800 transition-colors"
+                    >
+                      View Trend →
+                    </button>
+                  )}
+                  {status === "error" && onLaunchAnalysis && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onLaunchAnalysis(trend.rank, videoPostIds);
+                      }}
+                      className="bg-red-50 text-red-700 text-xs px-4 py-1.5 rounded hover:bg-red-100 transition-colors"
+                    >
+                      Retry Analysis
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         );
       })}

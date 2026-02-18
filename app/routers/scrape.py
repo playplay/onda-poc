@@ -20,11 +20,8 @@ async def trigger_scrape(
     """Start a LinkedIn scrape via Apify (non-blocking)."""
     job = ScrapeJob(
         id=uuid.uuid4(),
-        search_query=req.search_query,
+        search_query=req.sector,  # store sector as search_query for display
         sector=req.sector,
-        content_type_filter=req.content_type_filter,
-        is_corporate=req.is_corporate,
-        max_results=req.max_results,
         status="pending",
     )
     db.add(job)

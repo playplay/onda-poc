@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   getScrapeStatus,
   getPosts,
@@ -7,15 +7,16 @@ import {
   startAnalysis,
   processNextAnalysis,
   getAnalysis,
+  getAnalysesByJob,
 } from "../api/client";
 import type { ScrapeJob, Post, RankedTrend, GeminiAnalysis } from "../types";
 import ResultsTable from "../components/ResultsTable";
 import TrendRanking from "../components/TrendRanking";
 import type { AnalysisStatus } from "../components/TrendRanking";
-import AnalysisModal from "../components/AnalysisModal";
 
 export default function ResultsPage() {
   const { jobId } = useParams<{ jobId: string }>();
+  const navigate = useNavigate();
   const [job, setJob] = useState<ScrapeJob | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [trends, setTrends] = useState<RankedTrend[]>([]);
@@ -25,10 +26,32 @@ export default function ResultsPage() {
   const [analysisStatus, setAnalysisStatus] = useState<Record<number, AnalysisStatus>>({});
   const [analyses, setAnalyses] = useState<GeminiAnalysis[]>([]);
 
-  // Modal state
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalPosts, setModalPosts] = useState<Post[]>([]);
-  const [modalLoading, setModalLoading] = useState(false);
+  // Load completed job data + restore existing analyses from DB
+  const loadCompletedData = useCallback(async (id: string) => {
+    const [postsData, trendsData, existingAnalyses] = await Promise.all([
+      getPosts(id),
+      getRanking(id),
+      getAnalysesByJob(id),
+    ]);
+    setPosts(postsData);
+    setTrends(trendsData);
+    setAnalyses(existingAnalyses);
+
+    // Derive analysis status from existing DB data
+    if (existingAnalyses.length > 0) {
+      const analyzedPostIds = new Set(existingAnalyses.map((a) => a.post_id));
+      const statusMap: Record<number, AnalysisStatus> = {};
+      for (const trend of trendsData) {
+        const videoIds = trend.top_posts
+          .filter((p) => p.video_url)
+          .map((p) => p.id);
+        if (videoIds.length > 0 && videoIds.every((id) => analyzedPostIds.has(id))) {
+          statusMap[trend.rank] = "done";
+        }
+      }
+      setAnalysisStatus(statusMap);
+    }
+  }, []);
 
   // Poll job status
   useEffect(() => {
@@ -37,14 +60,8 @@ export default function ResultsPage() {
     const poll = async () => {
       const status = await getScrapeStatus(jobId);
       setJob(status);
-
       if (status.status === "completed") {
-        const [postsData, trendsData] = await Promise.all([
-          getPosts(jobId),
-          getRanking(jobId),
-        ]);
-        setPosts(postsData);
-        setTrends(trendsData);
+        await loadCompletedData(jobId);
       }
     };
 
@@ -55,18 +72,13 @@ export default function ResultsPage() {
       if (status.status === "completed" || status.status === "failed") {
         clearInterval(interval);
         if (status.status === "completed") {
-          const [postsData, trendsData] = await Promise.all([
-            getPosts(jobId),
-            getRanking(jobId),
-          ]);
-          setPosts(postsData);
-          setTrends(trendsData);
+          await loadCompletedData(jobId);
         }
       }
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [jobId]);
+  }, [jobId, loadCompletedData]);
 
   // Launch analysis: one-at-a-time processing loop
   const handleLaunchAnalysis = useCallback(
@@ -119,23 +131,15 @@ export default function ResultsPage() {
     []
   );
 
-  // View analysis (green button -> open modal)
-  const handleViewAnalysis = useCallback(
-    (rank: number, postIds: string[]) => {
-      const targetPosts = posts.filter((p) => postIds.includes(p.id));
-      setModalPosts(targetPosts);
-      setModalLoading(false);
-      setModalOpen(true);
+  const handleNavigateToTrend = useCallback(
+    (rank: number) => {
+      navigate(`/results/${jobId}/trend/${rank}`);
     },
-    [posts]
+    [jobId, navigate]
   );
 
-  const handleCloseModal = useCallback(() => {
-    setModalOpen(false);
-  }, []);
-
   if (!job) {
-    return <p className="text-center text-gray-500 py-8">Loading...</p>;
+    return <p className="text-center text-gray-400 py-8">Loading...</p>;
   }
 
   return (
@@ -143,26 +147,25 @@ export default function ResultsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <Link to="/" className="text-blue-600 hover:underline text-sm">
+          <Link to="/" className="text-gray-500 hover:text-gray-700 text-sm">
             &larr; New Scrape
           </Link>
-          <h2 className="text-xl font-bold mt-1">
+          <h2 className="text-xl font-semibold text-gray-900 mt-1">
             Results: &quot;{job.search_query}&quot;
           </h2>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-400">
             {job.sector && `Sector: ${job.sector} · `}
-            {job.content_type_filter && `Type: ${job.content_type_filter} · `}
             {job.total_posts ?? 0} posts scraped
           </p>
         </div>
         <div>
           <span
-            className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+            className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
               job.status === "completed"
-                ? "bg-green-100 text-green-800"
+                ? "bg-gray-900 text-white"
                 : job.status === "failed"
-                ? "bg-red-100 text-red-800"
-                : "bg-yellow-100 text-yellow-800"
+                ? "bg-red-50 text-red-700"
+                : "bg-gray-100 text-gray-600"
             }`}
           >
             {job.status === "downloading_videos" ? "downloading videos" : job.status}
@@ -172,12 +175,12 @@ export default function ResultsPage() {
 
       {/* Loading state: scraping */}
       {(job.status === "pending" || job.status === "running") && (
-        <div className="bg-blue-50 rounded-lg p-8 text-center">
-          <div className="animate-spin inline-block w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full mb-3" />
-          <p className="text-blue-700 font-medium">
+        <div className="border border-gray-200 rounded-lg p-8 text-center">
+          <div className="animate-spin inline-block w-6 h-6 border-2 border-gray-900 border-t-transparent rounded-full mb-3" />
+          <p className="text-gray-700 font-medium text-sm">
             Scraping LinkedIn posts...
           </p>
-          <p className="text-blue-500 text-sm mt-1">
+          <p className="text-gray-400 text-xs mt-1">
             This may take a few minutes depending on the number of results.
           </p>
         </div>
@@ -185,23 +188,22 @@ export default function ResultsPage() {
 
       {/* Loading state: downloading videos */}
       {job.status === "downloading_videos" && (
-        <div className="bg-purple-50 rounded-lg p-8 text-center">
-          <div className="animate-spin inline-block w-8 h-8 border-3 border-purple-600 border-t-transparent rounded-full mb-3" />
-          <p className="text-purple-700 font-medium">
+        <div className="border border-gray-200 rounded-lg p-8 text-center">
+          <div className="animate-spin inline-block w-6 h-6 border-2 border-gray-900 border-t-transparent rounded-full mb-3" />
+          <p className="text-gray-700 font-medium text-sm">
             Downloading video URLs...
           </p>
-          <p className="text-purple-500 text-sm mt-1">
+          <p className="text-gray-400 text-xs mt-1">
             Fetching direct MP4 links for {job.total_posts ?? 0} video posts.
-            This may take a few minutes.
           </p>
         </div>
       )}
 
       {/* Error state */}
       {job.status === "failed" && (
-        <div className="bg-red-50 rounded-lg p-6">
-          <p className="text-red-700 font-medium">Scrape failed</p>
-          <p className="text-red-500 text-sm mt-1">{job.error_message}</p>
+        <div className="border border-red-200 rounded-lg p-6">
+          <p className="text-red-700 font-medium text-sm">Scrape failed</p>
+          <p className="text-red-500 text-xs mt-1">{job.error_message}</p>
         </div>
       )}
 
@@ -209,23 +211,23 @@ export default function ResultsPage() {
       {job.status === "completed" && (
         <>
           {/* Tabs */}
-          <div className="flex gap-2 border-b">
+          <div className="flex gap-4 border-b border-gray-200">
             <button
               onClick={() => setTab("trends")}
-              className={`px-4 py-2 text-sm font-medium border-b-2 ${
+              className={`px-1 py-2 text-sm font-medium border-b-2 transition-colors ${
                 tab === "trends"
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
+                  ? "border-gray-900 text-gray-900"
+                  : "border-transparent text-gray-400 hover:text-gray-600"
               }`}
             >
               Trend Ranking
             </button>
             <button
               onClick={() => setTab("table")}
-              className={`px-4 py-2 text-sm font-medium border-b-2 ${
+              className={`px-1 py-2 text-sm font-medium border-b-2 transition-colors ${
                 tab === "table"
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
+                  ? "border-gray-900 text-gray-900"
+                  : "border-transparent text-gray-400 hover:text-gray-600"
               }`}
             >
               All Posts ({posts.length})
@@ -236,23 +238,15 @@ export default function ResultsPage() {
             <TrendRanking
               trends={trends}
               allPostScores={posts.map((p) => p.engagement_score)}
+              analyses={analyses}
               analysisStatus={analysisStatus}
               onLaunchAnalysis={handleLaunchAnalysis}
-              onViewAnalysis={handleViewAnalysis}
+              onNavigateToTrend={handleNavigateToTrend}
             />
           )}
           {tab === "table" && <ResultsTable posts={posts} />}
         </>
       )}
-
-      {/* Analysis Modal */}
-      <AnalysisModal
-        open={modalOpen}
-        onClose={handleCloseModal}
-        posts={modalPosts}
-        analyses={analyses}
-        loading={modalLoading}
-      />
     </div>
   );
 }
