@@ -3,11 +3,17 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db import get_db
 from app.models.scrape_job import ScrapeJob
 from app.schemas.scrape import ScrapeRequest, ScrapeJobOut
-from app.services.apify_scraper import start_scrape, check_and_process_scrape
 from app.services.video_downloader import check_and_process_video_download
+
+# Feature flag: use Bright Data when token is configured, else Apify
+if settings.API_BRIGHT_DATA:
+    from app.services.brightdata_scraper import start_scrape, check_and_process_scrape
+else:
+    from app.services.apify_scraper import start_scrape, check_and_process_scrape
 
 router = APIRouter()
 

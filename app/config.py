@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     AI_GATEWAY_API_KEY: str = ""
     VERCEL_OIDC_TOKEN: str = ""
     GEMINI_API_KEY: str = ""
+    API_BRIGHT_DATA: str = ""
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
 
     @property
