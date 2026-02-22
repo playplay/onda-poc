@@ -9,16 +9,10 @@ from app.schemas.post import PostOut, RankedTrendOut
 
 
 def compute_engagement_score(
-    reactions: int, comments: int, shares: int, clicks: int, impressions: int
+    reactions: int, comments: int, shares: int = 0, clicks: int = 0, impressions: int = 0
 ) -> float:
-    """Compute engagement score.
-
-    If impressions are available: (Reactions + Comments + Shares + Clicks) / Impressions * 100
-    Otherwise: weighted sum (comments and shares count more than reactions).
-    """
-    if impressions > 0:
-        return (reactions + comments + shares + clicks) / impressions * 100
-    return float(reactions + comments * 2 + shares * 3 + clicks)
+    """Compute engagement score: Reactions + Comments × 3."""
+    return float(reactions + comments * 3)
 
 
 async def get_top_trends(

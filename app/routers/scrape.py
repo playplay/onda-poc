@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -16,6 +17,18 @@ else:
     from app.services.apify_scraper import start_scrape, check_and_process_scrape
 
 router = APIRouter()
+
+
+@router.get("/scrape", response_model=list[ScrapeJobOut])
+async def list_scrape_jobs(
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """List recent scrape jobs, newest first."""
+    result = await db.execute(
+        select(ScrapeJob).order_by(ScrapeJob.created_at.desc()).limit(limit)
+    )
+    return result.scalars().all()
 
 
 @router.post("/scrape", response_model=ScrapeJobOut)

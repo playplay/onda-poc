@@ -12,12 +12,8 @@ let accountsCache: WatchedAccount[] | null = null;
 
 function sortAccounts(list: WatchedAccount[]): WatchedAccount[] {
   return [...list].sort((a, b) => {
-    // 1. sector
     if (a.sector < b.sector) return -1;
     if (a.sector > b.sector) return 1;
-    // 2. type: company before persona
-    if (a.type !== b.type) return a.type === "company" ? -1 : 1;
-    // 3. name
     return a.name.localeCompare(b.name);
   });
 }
@@ -27,6 +23,7 @@ const EMPTY_FORM: WatchedAccountCreate = {
   type: "company",
   linkedin_url: "",
   sector: "",
+  is_playplay_client: false,
 };
 
 export default function AdminPage() {
@@ -34,6 +31,7 @@ export default function AdminPage() {
     accountsCache ?? []
   );
   const [filterSector, setFilterSector] = useState("");
+  const [filterPlayPlay, setFilterPlayPlay] = useState<boolean | null>(null);
   // Only show loading spinner if we have no cached data
   const [loading, setLoading] = useState(accountsCache === null);
   const [error, setError] = useState<string | null>(null);
@@ -46,12 +44,11 @@ export default function AdminPage() {
 
   const sectors = [...new Set(accounts.map((a) => a.sector))].sort();
 
-  // Group displayed accounts by type
-  const base = filterSector
-    ? accounts.filter((a) => a.sector === filterSector)
-    : accounts;
-  const companies = base.filter((a) => a.type === "company");
-  const personas = base.filter((a) => a.type === "persona");
+  const base = accounts.filter((a) => {
+    if (filterSector && a.sector !== filterSector) return false;
+    if (filterPlayPlay !== null && a.is_playplay_client !== filterPlayPlay) return false;
+    return true;
+  });
 
   function applyAndCache(list: WatchedAccount[]) {
     const sorted = sortAccounts(list);
@@ -84,6 +81,7 @@ export default function AdminPage() {
       type: account.type,
       linkedin_url: account.linkedin_url,
       sector: account.sector,
+      is_playplay_client: account.is_playplay_client,
     });
     setFormError(null);
     setSectorMode("select");
@@ -144,6 +142,22 @@ export default function AdminPage() {
     <tr className="border-t border-gray-100 hover:bg-gray-50">
       <td className="px-4 py-2 font-medium text-gray-900">{account.name}</td>
       <td className="px-4 py-2 text-gray-600">{account.sector}</td>
+      <td className="px-4 py-2">
+        <input
+          type="checkbox"
+          checked={account.is_playplay_client}
+          onChange={async (e) => {
+            const val = e.target.checked;
+            applyAndCache(accounts.map((a) => a.id === account.id ? { ...a, is_playplay_client: val } : a));
+            try {
+              await updateAccount(account.id, { is_playplay_client: val });
+            } catch {
+              getAccounts().then(applyAndCache);
+            }
+          }}
+          className="rounded border-gray-300 text-gray-400 focus:ring-gray-300 cursor-pointer w-3.5 h-3.5"
+        />
+      </td>
       <td className="px-4 py-2 text-gray-500 max-w-xs truncate">
         <a
           href={account.linkedin_url}
@@ -181,26 +195,18 @@ export default function AdminPage() {
     </tr>
   );
 
-  const GroupHeader = ({ label, count }: { label: string; count: number }) => (
-    <tr className="bg-gray-50">
-      <td colSpan={4} className="px-4 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-        {label} <span className="font-normal text-gray-400">({count})</span>
-      </td>
-    </tr>
-  );
-
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Watched Accounts</h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            LinkedIn companies and personas tracked per sector.
+            LinkedIn company pages tracked per sector.
           </p>
         </div>
         <button
           onClick={openCreate}
-          className="bg-gray-900 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-800 transition-colors"
+          className="bg-violet-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-violet-700 transition-colors"
         >
           + Add Account
         </button>
@@ -211,7 +217,7 @@ export default function AdminPage() {
       )}
 
       {sectors.length > 0 && (
-        <div className="mb-4">
+        <div className="mb-4 flex items-center gap-3">
           <select
             value={filterSector}
             onChange={(e) => setFilterSector(e.target.value)}
@@ -222,6 +228,16 @@ export default function AdminPage() {
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
+          <button
+            onClick={() => setFilterPlayPlay((prev) => (prev === true ? null : true))}
+            className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+              filterPlayPlay === true
+                ? "bg-green-50 text-green-700 border-green-200"
+                : "text-gray-600 border-gray-200 hover:border-gray-400"
+            }`}
+          >
+            PlayPlay only
+          </button>
         </div>
       )}
 
@@ -238,23 +254,13 @@ export default function AdminPage() {
               <tr>
                 <th className="text-left px-4 py-2 font-medium text-gray-600">Name</th>
                 <th className="text-left px-4 py-2 font-medium text-gray-600">Sector</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600">PlayPlay Client?</th>
                 <th className="text-left px-4 py-2 font-medium text-gray-600">LinkedIn URL</th>
                 <th className="px-4 py-2"></th>
               </tr>
             </thead>
             <tbody>
-              {companies.length > 0 && (
-                <>
-                  <GroupHeader label="Companies" count={companies.length} />
-                  {companies.map((a) => <AccountRow key={a.id} account={a} />)}
-                </>
-              )}
-              {personas.length > 0 && (
-                <>
-                  <GroupHeader label="Personas" count={personas.length} />
-                  {personas.map((a) => <AccountRow key={a.id} account={a} />)}
-                </>
-              )}
+              {base.map((a) => <AccountRow key={a.id} account={a} />)}
             </tbody>
           </table>
         </div>
@@ -280,22 +286,10 @@ export default function AdminPage() {
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g. Apple, Tim Cook"
+                  placeholder="e.g. Apple, Société Générale"
                   autoFocus
                   className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
                 />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">Type *</label>
-                <select
-                  value={form.type}
-                  onChange={(e) => setForm({ ...form, type: e.target.value as "company" | "persona" })}
-                  className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-                >
-                  <option value="company">Company</option>
-                  <option value="persona">Persona</option>
-                </select>
               </div>
 
               <div>
@@ -353,6 +347,20 @@ export default function AdminPage() {
                   className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
                 />
               </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="playplay-client"
+                  checked={form.is_playplay_client ?? false}
+                  onChange={(e) => setForm({ ...form, is_playplay_client: e.target.checked })}
+                  className="rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                />
+                <label htmlFor="playplay-client" className="text-sm text-gray-600">
+                  PlayPlay Client
+                </label>
+              </div>
+
             </div>
 
             <div className="flex justify-end gap-2 mt-5">
@@ -366,7 +374,7 @@ export default function AdminPage() {
               <button
                 type="button"
                 onClick={handleSave}
-                className="px-4 py-2 text-sm bg-gray-900 text-white rounded-md hover:bg-gray-800"
+                className="px-4 py-2 text-sm bg-violet-600 text-white rounded-md hover:bg-violet-700"
               >
                 Save
               </button>

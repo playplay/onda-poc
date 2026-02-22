@@ -8,7 +8,7 @@ export default function HomePage() {
           Discover LinkedIn Trends
         </h2>
         <p className="text-sm text-gray-400">
-          Scrape, rank, and analyze content trends with AI
+          Scrape, rank and analyze content trends with AI
         </p>
       </div>
       <ScrapeForm />

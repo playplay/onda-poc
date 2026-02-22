@@ -21,7 +21,7 @@ class Post(Base):
     sector: Mapped[str | None] = mapped_column(String(100), nullable=True)
     platform: Mapped[str] = mapped_column(String(50), default="linkedin")
     content_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    format_family: Mapped[str | None] = mapped_column(String(50), nullable=True)  # short_video / long_video / static / text
+    format_family: Mapped[str | None] = mapped_column(String(50), nullable=True)  # video / carousel / image / text
     format_variation: Mapped[str | None] = mapped_column(String(100), nullable=True)  # Gemini-classified
     reactions: Mapped[int] = mapped_column(Integer, default=0)
     comments: Mapped[int] = mapped_column(Integer, default=0)

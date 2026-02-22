@@ -1,9 +1,9 @@
 """
-Bright Data scraper service for LinkedIn posts — Onda multi-account mode.
+Bright Data scraper service for LinkedIn posts — Onda company-only mode.
 
 Flow:
-  start_scrape()            → trigger batch requests (company + persona endpoints)
-  check_and_process_scrape() → poll snapshot status, fetch & store top-10 on completion
+  start_scrape()            → trigger batch request for company accounts
+  check_and_process_scrape() → poll snapshot status, fetch & store posts on completion
 """
 
 import asyncio
@@ -11,10 +11,12 @@ import json
 import re
 import uuid
 import logging
-from datetime import datetime, timedelta
+from collections import defaultdict
+from datetime import datetime
+from urllib.parse import unquote
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -27,17 +29,9 @@ from app.services.video_downloader import start_video_download
 
 logger = logging.getLogger(__name__)
 
-DATASET_IDS = {
-    "company": "gd_lyy3tktm25m4avu764",  # Discover by company URL
-    "persona": "gd_lpfll7v5hcqtkxl6l",   # Discover by profile URL
-}
-DISCOVER_BY = {
-    "company": "company_url",
-    "persona": "url",
-}
+DATASET_ID = "gd_lyy3tktm25m4avu764"
+DISCOVER_BY = "company_url"
 BASE_URL = "https://api.brightdata.com/datasets/v3"
-TOP_N = 10
-RECENT_DAYS = 30
 POSTS_PER_ACCOUNT = 3
 
 # Fields to request from Bright Data API (excludes comments, HTML, other profiles)
@@ -54,10 +48,9 @@ def _headers() -> dict[str, str]:
 
 
 def _normalize_url(url: str) -> str:
-    """Normalize LinkedIn URL to clean base format for Bright Data API.
+    """Normalize LinkedIn company URL for Bright Data API.
 
-    Company: https://www.linkedin.com/company/slug/
-    Profile: https://www.linkedin.com/in/slug/
+    Output: https://www.linkedin.com/company/slug/
     """
     url = url.strip()
     url = url.split("?")[0]  # remove query params
@@ -65,16 +58,11 @@ def _normalize_url(url: str) -> str:
     # Normalize domain (fr.linkedin.com → www.linkedin.com)
     url = re.sub(r"https?://\w+\.linkedin\.com", "https://www.linkedin.com", url)
 
-    # Extract the slug based on type
     company_match = re.search(r"/company/([^/]+)", url)
     if company_match:
         return f"https://www.linkedin.com/company/{company_match.group(1)}/"
 
-    profile_match = re.search(r"/in/([^/]+)", url)
-    if profile_match:
-        return f"https://www.linkedin.com/in/{profile_match.group(1)}/"
-
-    # Fallback: strip trailing path segments
+    # Fallback
     if not url.endswith("/"):
         url += "/"
     return url
@@ -88,18 +76,16 @@ def _extract_slug(linkedin_url: str) -> str:
 
 async def _trigger_batch(
     client: httpx.AsyncClient,
-    dataset_id: str,
-    discover_by: str,
     batch: list[dict],
 ) -> str:
-    """Trigger one Bright Data batch and return the snapshot_id."""
+    """Trigger one Bright Data company batch and return the snapshot_id."""
     response = await client.post(
         f"{BASE_URL}/trigger",
         headers=_headers(),
         params={
-            "dataset_id": dataset_id,
+            "dataset_id": DATASET_ID,
             "type": "discover_new",
-            "discover_by": discover_by,
+            "discover_by": DISCOVER_BY,
             "limit_per_input": POSTS_PER_ACCOUNT,
             "custom_output_fields": OUTPUT_FIELDS,
         },
@@ -110,7 +96,7 @@ async def _trigger_batch(
 
 
 async def start_scrape(db: AsyncSession, job: ScrapeJob) -> None:
-    """Trigger Bright Data batch requests — one per account type (company/persona)."""
+    """Trigger Bright Data batch request for all company accounts in the sector."""
     job.status = "running"
     job.scraper_backend = "brightdata"
 
@@ -127,38 +113,16 @@ async def start_scrape(db: AsyncSession, job: ScrapeJob) -> None:
             await db.commit()
             return
 
-        # Partition accounts by type
-        company_accounts = [a for a in accounts if a.type == "company"]
-        persona_accounts = [a for a in accounts if a.type == "persona"]
-
-        def _make_batch(accts: list) -> list[dict]:
-            return [{"url": _normalize_url(a.linkedin_url)} for a in accts]
+        batch = [{"url": _normalize_url(a.linkedin_url)} for a in accounts]
 
         async with httpx.AsyncClient(timeout=30) as client:
-            tasks = []
-            type_order = []  # track which type each task corresponds to
+            snapshot_id = await _trigger_batch(client, batch)
 
-            if company_accounts:
-                tasks.append(
-                    _trigger_batch(client, DATASET_IDS["company"], DISCOVER_BY["company"], _make_batch(company_accounts))
-                )
-                type_order.append("company")
-
-            if persona_accounts:
-                tasks.append(
-                    _trigger_batch(client, DATASET_IDS["persona"], DISCOVER_BY["persona"], _make_batch(persona_accounts))
-                )
-                type_order.append("persona")
-
-            snapshot_ids_list = await asyncio.gather(*tasks)
-
-        # Store as JSON dict: {"company": "snap_abc", "persona": "snap_def"}
-        snapshot_map = dict(zip(type_order, snapshot_ids_list))
-        job.brightdata_snapshot_id = json.dumps(snapshot_map)
+        job.brightdata_snapshot_id = json.dumps({"company": snapshot_id})
 
         logger.info(
-            f"Bright Data snapshots triggered for sector '{job.sector}': {snapshot_map} "
-            f"({len(company_accounts)} company, {len(persona_accounts)} persona accounts)"
+            f"Bright Data snapshot triggered for sector '{job.sector}': {snapshot_id} "
+            f"({len(accounts)} company accounts)"
         )
 
     except Exception as e:
@@ -204,7 +168,7 @@ async def _fetch_results(client: httpx.AsyncClient, snapshot_id: str) -> list[di
 
 
 async def check_and_process_scrape(db: AsyncSession, job: ScrapeJob) -> None:
-    """Poll Bright Data snapshots; when ALL ready, fetch results and store top-10."""
+    """Poll Bright Data snapshots; when ALL ready, fetch results and store per-account posts."""
     if job.status != "running":
         return
 
@@ -239,6 +203,16 @@ async def check_and_process_scrape(db: AsyncSession, job: ScrapeJob) -> None:
         if not all(s == "ready" for s in statuses.values()):
             return
 
+        # Guard against double insertion (concurrent polling requests)
+        existing_count = (await db.execute(
+            select(func.count()).where(Post.scrape_job_id == job.id)
+        )).scalar()
+        if existing_count > 0:
+            job.status = "completed"
+            job.completed_at = datetime.utcnow()
+            await db.commit()
+            return
+
         # All ready — fetch results from each snapshot in parallel
         async with httpx.AsyncClient(timeout=60) as client:
             fetch_tasks = [
@@ -261,19 +235,34 @@ async def check_and_process_scrape(db: AsyncSession, job: ScrapeJob) -> None:
 
         items = [
             item for item in items
-            if not item.get("error") and item.get("user_id") in allowed_slugs
+            if not item.get("error") and unquote(item.get("user_id", "")) in allowed_slugs
         ]
+
+        # Deduplicate by post URL
+        seen_urls: set[str] = set()
+        unique_items: list[dict] = []
+        for item in items:
+            url = item.get("url", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                unique_items.append(item)
+        items = unique_items
 
         logger.info(
             f"Bright Data results for sector '{job.sector}': "
-            f"{len(items)} posts after filtering (allowed slugs: {allowed_slugs})"
+            f"{len(items)} posts after filtering + dedup (allowed slugs: {allowed_slugs})"
         )
 
-        # Sort by engagement, keep top N
-        def engagement(item: dict) -> int:
-            return int(item.get("num_likes", 0) or 0) + int(item.get("num_comments", 0) or 0)
+        # Take the N most recent posts per account (by date)
+        items_by_user: dict[str, list[dict]] = defaultdict(list)
+        for item in items:
+            uid = unquote(item.get("user_id", "unknown"))
+            items_by_user[uid].append(item)
 
-        top_items = sorted(items, key=engagement, reverse=True)[:TOP_N]
+        top_items: list[dict] = []
+        for uid, user_items in items_by_user.items():
+            user_items.sort(key=lambda x: x.get("date_posted", ""), reverse=True)
+            top_items.extend(user_items[:POSTS_PER_ACCOUNT])
 
         # Map to Post models
         created_posts: list[Post] = []
@@ -325,9 +314,10 @@ def _item_to_post(item: dict, job: ScrapeJob) -> Post:
     images = item.get("images") or []
     has_video = bool(videos)
     has_image = bool(images)
+    has_document = bool(item.get("document_page_count") or item.get("document_cover_image"))
 
     video_url = videos[0] if videos else None
-    image_url = images[0] if images else None
+    image_url = images[0] if images else (item.get("video_thumbnail") or None)
     # video_duration comes as seconds (int or float) from Bright Data
     duration_raw = item.get("video_duration")
     duration_seconds = int(duration_raw) if duration_raw else None
@@ -339,6 +329,7 @@ def _item_to_post(item: dict, job: ScrapeJob) -> Post:
         duration_seconds=duration_seconds,
         has_video=has_video,
         has_image=has_image,
+        has_document=has_document,
     )
 
     engagement = compute_engagement_score(reactions, comments_count, shares, 0, 0)

@@ -8,6 +8,7 @@ export interface WatchedAccount {
   type: "company" | "persona";
   linkedin_url: string;
   sector: string;
+  is_playplay_client: boolean;
   created_at: string;
 }
 
@@ -16,6 +17,7 @@ export interface WatchedAccountCreate {
   type: "company" | "persona";
   linkedin_url: string;
   sector: string;
+  is_playplay_client?: boolean;
 }
 
 export interface WatchedAccountUpdate {
@@ -23,6 +25,7 @@ export interface WatchedAccountUpdate {
   type?: "company" | "persona";
   linkedin_url?: string;
   sector?: string;
+  is_playplay_client?: boolean;
 }
 
 export interface ScrapeJob {

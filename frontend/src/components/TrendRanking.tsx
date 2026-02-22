@@ -13,8 +13,7 @@ interface Props {
 }
 
 const FAMILY_LABELS: Record<string, string> = {
-  short_video: "Short Video (<90s)",
-  long_video: "Long Video (>90s)",
+  video: "Video",
   static: "Static (Image/Doc)",
   text: "Text Only",
   unknown: "Unknown",
@@ -155,7 +154,7 @@ export default function TrendRanking({
                         e.stopPropagation();
                         onLaunchAnalysis(trend.rank, videoPostIds);
                       }}
-                      className="bg-gray-900 text-white text-xs px-4 py-1.5 rounded hover:bg-gray-800 transition-colors"
+                      className="bg-violet-600 text-white text-xs px-4 py-1.5 rounded hover:bg-violet-700 transition-colors"
                     >
                       Launch Analysis ({videoPostIds.length} videos)
                     </button>
@@ -175,7 +174,7 @@ export default function TrendRanking({
                         e.stopPropagation();
                         onNavigateToTrend(trend.rank);
                       }}
-                      className="bg-gray-900 text-white text-xs px-4 py-1.5 rounded hover:bg-gray-800 transition-colors"
+                      className="bg-violet-600 text-white text-xs px-4 py-1.5 rounded hover:bg-violet-700 transition-colors"
                     >
                       View Trend →
                     </button>

@@ -12,8 +12,7 @@ import {
 } from "../types";
 
 const FAMILY_LABELS: Record<string, string> = {
-  short_video: "Short Video (<90s)",
-  long_video: "Long Video (>90s)",
+  video: "Video",
   static: "Static (Image/Doc)",
   text: "Text Only",
   unknown: "Unknown",

@@ -7,15 +7,15 @@ Tier 1 (metadata-based): Assigns format_family from post metadata.
 Tier 2 (Gemini AI): Assigns format_variation — handled in gemini.py.
 
 Families:
-- short_video: Video under 90 seconds
-- long_video: Video over 90 seconds
-- static: Image, carousel, document, infographic
+- video: All video content
+- carousel: Document / multi-page post
+- image: Single or multiple images (no document)
 - text: Text-only post (no media)
 """
 
 # Full format variation taxonomy for reference (used by Gemini analysis)
 FORMAT_TAXONOMY = {
-    "short_video": [
+    "video": [
         "talking_head",
         "vox_pop",
         "interview",
@@ -34,8 +34,6 @@ FORMAT_TAXONOMY = {
         "trend_format",
         "timelapse",
         "stop_motion",
-    ],
-    "long_video": [
         "webinar",
         "webinar_extract",
         "long_interview",
@@ -50,7 +48,7 @@ FORMAT_TAXONOMY = {
         "live_replay",
         "compilation",
     ],
-    "static": [
+    "carousel": [
         "instruction_carousel",
         "storytelling_carousel",
         "list_carousel",
@@ -58,6 +56,11 @@ FORMAT_TAXONOMY = {
         "infographic_data",
         "infographic_process",
         "infographic_concept",
+        "checklist",
+        "template_framework",
+        "technical_diagram",
+    ],
+    "image": [
         "verbatim",
         "key_figures",
         "corporate_meme",
@@ -65,10 +68,7 @@ FORMAT_TAXONOMY = {
         "product_visual",
         "focus_team_talent",
         "ad",
-        "checklist",
-        "template_framework",
         "content_cover",
-        "technical_diagram",
         "conceptual_illustration",
     ],
     "text": [],
@@ -79,9 +79,6 @@ VARIATION_TO_FAMILY = {}
 for family, variations in FORMAT_TAXONOMY.items():
     for variation in variations:
         VARIATION_TO_FAMILY[variation] = family
-
-SHORT_VIDEO_THRESHOLD_SECONDS = 90
-
 
 def classify_format_family(
     content_type: str | None,
@@ -95,13 +92,15 @@ def classify_format_family(
 
     # Video detection
     if has_video or "video" in ct:
-        if duration_seconds is not None and duration_seconds > SHORT_VIDEO_THRESHOLD_SECONDS:
-            return "long_video"
-        return "short_video"
+        return "video"
 
-    # Static content detection
-    if has_image or has_document or any(kw in ct for kw in ("image", "carousel", "document", "photo", "infographic", "slide")):
-        return "static"
+    # Document/carousel detection (takes priority over image)
+    if has_document or any(kw in ct for kw in ("carousel", "document", "slide")):
+        return "carousel"
+
+    # Image detection
+    if has_image or any(kw in ct for kw in ("image", "photo", "infographic")):
+        return "image"
 
     # Text-only fallback
     return "text"

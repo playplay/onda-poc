@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import {
   getScrapeStatus,
   getPosts,
@@ -8,37 +8,50 @@ import {
   processNextAnalysis,
   getAnalysis,
   getAnalysesByJob,
+  getAccounts,
 } from "../api/client";
 import type { ScrapeJob, Post, RankedTrend, GeminiAnalysis } from "../types";
-import ResultsTable from "../components/ResultsTable";
+import PostGallery from "../components/PostGallery";
 import TrendRanking from "../components/TrendRanking";
 import type { AnalysisStatus } from "../components/TrendRanking";
 
-export default function ResultsPage() {
+// Module-level cache for completed job data — survives re-mounts
+const jobDataCache = new Map<
+  string,
+  { posts: Post[]; trends: RankedTrend[]; analyses: GeminiAnalysis[] }
+>();
+
+interface Props {
+  jobs: ScrapeJob[];
+  refreshJobs: () => Promise<void>;
+}
+
+export default function ResultsPage({ jobs, refreshJobs }: Props) {
   const { jobId } = useParams<{ jobId: string }>();
   const navigate = useNavigate();
-  const [job, setJob] = useState<ScrapeJob | null>(null);
+
+  // Derive job from props — instant, no API call needed
+  const job = useMemo(
+    () => jobs.find((j) => j.id === jobId) ?? null,
+    [jobs, jobId]
+  );
+
   const [posts, setPosts] = useState<Post[]>([]);
   const [trends, setTrends] = useState<RankedTrend[]>([]);
-  const [tab, setTab] = useState<"table" | "trends">("trends");
+  const [tab, setTab] = useState<"trends" | "gallery">("gallery");
+  const [playplaySlugs, setPlayplaySlugs] = useState<Set<string>>(new Set());
 
   // Analysis state per trend rank
   const [analysisStatus, setAnalysisStatus] = useState<Record<number, AnalysisStatus>>({});
   const [analyses, setAnalyses] = useState<GeminiAnalysis[]>([]);
 
-  // Load completed job data + restore existing analyses from DB
-  const loadCompletedData = useCallback(async (id: string) => {
-    const [postsData, trendsData, existingAnalyses] = await Promise.all([
-      getPosts(id),
-      getRanking(id),
-      getAnalysesByJob(id),
-    ]);
-    setPosts(postsData);
-    setTrends(trendsData);
-    setAnalyses(existingAnalyses);
-
-    // Derive analysis status from existing DB data
-    if (existingAnalyses.length > 0) {
+  // Helper: derive analysis status from trends + analyses
+  const deriveAnalysisStatus = useCallback(
+    (trendsData: RankedTrend[], existingAnalyses: GeminiAnalysis[]) => {
+      if (existingAnalyses.length === 0) {
+        setAnalysisStatus({});
+        return;
+      }
       const analyzedPostIds = new Set(existingAnalyses.map((a) => a.post_id));
       const statusMap: Record<number, AnalysisStatus> = {};
       for (const trend of trendsData) {
@@ -50,35 +63,93 @@ export default function ResultsPage() {
         }
       }
       setAnalysisStatus(statusMap);
-    }
-  }, []);
+    },
+    []
+  );
 
-  // Poll job status
+  // Load completed job data + restore existing analyses from DB
+  const loadCompletedData = useCallback(
+    async (id: string) => {
+      const [postsData, trendsData, existingAnalyses] = await Promise.all([
+        getPosts(id),
+        getRanking(id),
+        getAnalysesByJob(id),
+      ]);
+      // Deduplicate posts by post_url
+      const seen = new Set<string>();
+      const uniquePosts = postsData.filter((p) => {
+        if (!p.post_url || seen.has(p.post_url)) return false;
+        seen.add(p.post_url);
+        return true;
+      });
+      setPosts(uniquePosts);
+      setTrends(trendsData);
+      setAnalyses(existingAnalyses);
+      deriveAnalysisStatus(trendsData, existingAnalyses);
+
+      // Populate cache
+      jobDataCache.set(id, {
+        posts: uniquePosts,
+        trends: trendsData,
+        analyses: existingAnalyses,
+      });
+    },
+    [deriveAnalysisStatus]
+  );
+
+  // On jobId change: restore from cache or clear state
   useEffect(() => {
-    if (!jobId) return;
+    const cached = jobId ? jobDataCache.get(jobId) : undefined;
+    if (cached) {
+      setPosts(cached.posts);
+      setTrends(cached.trends);
+      setAnalyses(cached.analyses);
+      deriveAnalysisStatus(cached.trends, cached.analyses);
+    } else {
+      setPosts([]);
+      setTrends([]);
+      setAnalyses([]);
+      setAnalysisStatus({});
+    }
+  }, [jobId, deriveAnalysisStatus]);
 
-    const poll = async () => {
-      const status = await getScrapeStatus(jobId);
-      setJob(status);
-      if (status.status === "completed") {
-        await loadCompletedData(jobId);
-      }
-    };
+  // Build PlayPlay slugs set from watched accounts
+  useEffect(() => {
+    if (!job?.sector) return;
+    getAccounts(job.sector).then((accounts) => {
+      const slugs = new Set(
+        accounts
+          .filter((a) => a.is_playplay_client)
+          .map((a) => {
+            const match = a.linkedin_url.match(/\/(in|company)\/([^/]+)/);
+            return match ? match[2] : "";
+          })
+          .filter(Boolean)
+      );
+      setPlayplaySlugs(slugs);
+    });
+  }, [job?.sector]);
 
-    poll();
+  // Load data when job is completed and not cached
+  useEffect(() => {
+    if (!jobId || job?.status !== "completed") return;
+    if (jobDataCache.has(jobId)) return;
+    loadCompletedData(jobId);
+  }, [jobId, job?.status, loadCompletedData]);
+
+  // Poll only for in-progress jobs (triggers backend processing)
+  useEffect(() => {
+    if (!jobId || !job) return;
+    if (job.status === "completed" || job.status === "failed") return;
+
     const interval = setInterval(async () => {
-      const status = await getScrapeStatus(jobId);
-      setJob(status);
-      if (status.status === "completed" || status.status === "failed") {
-        clearInterval(interval);
-        if (status.status === "completed") {
-          await loadCompletedData(jobId);
-        }
+      const s = await getScrapeStatus(jobId);
+      if (s.status === "completed" || s.status === "failed") {
+        refreshJobs();
       }
     }, 3000);
-
     return () => clearInterval(interval);
-  }, [jobId, loadCompletedData]);
+  }, [jobId, job?.status, refreshJobs]);
 
   // Launch analysis: one-at-a-time processing loop
   const handleLaunchAnalysis = useCallback(
@@ -123,12 +194,21 @@ export default function ResultsPage() {
         }
 
         setAnalysisStatus((prev) => ({ ...prev, [rank]: "done" }));
+
+        // Update cache with new analyses
+        if (jobId && jobDataCache.has(jobId)) {
+          const cached = jobDataCache.get(jobId)!;
+          jobDataCache.set(jobId, {
+            ...cached,
+            analyses: [...analyses, ...existing],
+          });
+        }
       } catch (err) {
         console.error("Analysis failed:", err);
         setAnalysisStatus((prev) => ({ ...prev, [rank]: "error" }));
       }
     },
-    []
+    [jobId, analyses]
   );
 
   const handleNavigateToTrend = useCallback(
@@ -145,32 +225,18 @@ export default function ResultsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between">
         <div>
-          <Link to="/" className="text-gray-500 hover:text-gray-700 text-sm">
-            &larr; New Scrape
-          </Link>
-          <h2 className="text-xl font-semibold text-gray-900 mt-1">
-            Results: &quot;{job.search_query}&quot;
+          <h2 className="text-xl font-semibold text-gray-900">
+            {job.sector || job.search_query}
           </h2>
           <p className="text-sm text-gray-400">
-            {job.sector && `Sector: ${job.sector} · `}
-            {job.total_posts ?? 0} posts scraped
+            {posts.length} posts scraped
           </p>
         </div>
-        <div>
-          <span
-            className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
-              job.status === "completed"
-                ? "bg-gray-900 text-white"
-                : job.status === "failed"
-                ? "bg-red-50 text-red-700"
-                : "bg-gray-100 text-gray-600"
-            }`}
-          >
-            {job.status === "downloading_videos" ? "downloading videos" : job.status}
-          </span>
-        </div>
+        <span className="text-sm text-gray-400 shrink-0">
+          {new Date(job.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+        </span>
       </div>
 
       {/* Loading state: scraping */}
@@ -213,6 +279,16 @@ export default function ResultsPage() {
           {/* Tabs */}
           <div className="flex gap-4 border-b border-gray-200">
             <button
+              onClick={() => setTab("gallery")}
+              className={`px-1 py-2 text-sm font-medium border-b-2 transition-colors ${
+                tab === "gallery"
+                  ? "border-gray-900 text-gray-900"
+                  : "border-transparent text-gray-400 hover:text-gray-600"
+              }`}
+            >
+              Gallery
+            </button>
+            <button
               onClick={() => setTab("trends")}
               className={`px-1 py-2 text-sm font-medium border-b-2 transition-colors ${
                 tab === "trends"
@@ -221,16 +297,6 @@ export default function ResultsPage() {
               }`}
             >
               Trend Ranking
-            </button>
-            <button
-              onClick={() => setTab("table")}
-              className={`px-1 py-2 text-sm font-medium border-b-2 transition-colors ${
-                tab === "table"
-                  ? "border-gray-900 text-gray-900"
-                  : "border-transparent text-gray-400 hover:text-gray-600"
-              }`}
-            >
-              All Posts ({posts.length})
             </button>
           </div>
 
@@ -244,7 +310,7 @@ export default function ResultsPage() {
               onNavigateToTrend={handleNavigateToTrend}
             />
           )}
-          {tab === "table" && <ResultsTable posts={posts} />}
+          {tab === "gallery" && <PostGallery posts={posts} playplaySlugs={playplaySlugs} />}
         </>
       )}
     </div>

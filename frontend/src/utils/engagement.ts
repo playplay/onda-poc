@@ -11,6 +11,6 @@ export function getEngagementLabel(
   if (rank >= 0.9)
     return { label: "Viral", className: "bg-accent-100 text-accent-700" };
   if (rank >= 0.5)
-    return { label: "Engaging", className: "bg-gray-900 text-white" };
+    return { label: "Engaging", className: "bg-violet-100 text-violet-700" };
   return { label: "Neutral", className: "bg-gray-100 text-gray-500" };
 }

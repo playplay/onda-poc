@@ -46,6 +46,7 @@ async def create_account(
         type=body.type,
         linkedin_url=body.linkedin_url,
         sector=body.sector,
+        is_playplay_client=body.is_playplay_client,
     )
     db.add(account)
     await db.commit()
@@ -72,6 +73,8 @@ async def update_account(
         account.linkedin_url = body.linkedin_url
     if body.sector is not None:
         account.sector = body.sector
+    if body.is_playplay_client is not None:
+        account.is_playplay_client = body.is_playplay_client
 
     await db.commit()
     await db.refresh(account)

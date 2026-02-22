@@ -17,6 +17,11 @@ const api = axios.create({
   baseURL: "/api",
 });
 
+export async function listScrapeJobs(limit = 20): Promise<ScrapeJob[]> {
+  const { data } = await api.get<ScrapeJob[]>("/scrape", { params: { limit } });
+  return data;
+}
+
 export async function triggerScrape(params: ScrapeRequest): Promise<ScrapeJob> {
   const { data } = await api.post<ScrapeJob>("/scrape", params);
   return data;
@@ -104,9 +109,36 @@ export async function getTrendDetail(
 
 // --- Accounts ---
 
+// Pre-fetch sectors at module load so they're cached before any component mounts
+let _sectorsCache: string[] | null = null;
+let _sectorsFetch: Promise<string[]> | null = null;
+
+function _fetchSectors(): Promise<string[]> {
+  if (!_sectorsFetch) {
+    _sectorsFetch = api
+      .get<string[]>("/accounts/sectors")
+      .then(({ data }) => {
+        _sectorsCache = data;
+        return data;
+      })
+      .catch(() => {
+        _sectorsFetch = null; // allow retry on failure
+        return [];
+      });
+  }
+  return _sectorsFetch;
+}
+
+// Fire immediately on import
+_fetchSectors();
+
+export function getCachedSectors(): string[] | null {
+  return _sectorsCache;
+}
+
 export async function getSectors(): Promise<string[]> {
-  const { data } = await api.get<string[]>("/accounts/sectors");
-  return data;
+  if (_sectorsCache) return _sectorsCache;
+  return _fetchSectors();
 }
 
 export async function getAccounts(sector?: string): Promise<WatchedAccount[]> {
