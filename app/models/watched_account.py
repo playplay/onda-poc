@@ -15,7 +15,7 @@ class WatchedAccount(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    type: Mapped[str] = mapped_column(String(20), nullable=False)  # "company" | "persona"
+    type: Mapped[str] = mapped_column(String(20), nullable=False)  # "company"
     linkedin_url: Mapped[str] = mapped_column(Text, nullable=False)
     sector: Mapped[str] = mapped_column(String(100), nullable=False)
     is_playplay_client: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

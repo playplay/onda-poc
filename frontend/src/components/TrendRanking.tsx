@@ -1,4 +1,4 @@
-import type { RankedTrend, GeminiAnalysis } from "../types";
+import { FAMILY_LABELS, type RankedTrend, type GeminiAnalysis } from "../types";
 import { getEngagementLabel } from "../utils/engagement";
 
 export type AnalysisStatus = "idle" | "analyzing" | "done" | "error";
@@ -11,13 +11,6 @@ interface Props {
   onLaunchAnalysis?: (rank: number, postIds: string[]) => void;
   onNavigateToTrend?: (rank: number) => void;
 }
-
-const FAMILY_LABELS: Record<string, string> = {
-  video: "Video",
-  static: "Static (Image/Doc)",
-  text: "Text Only",
-  unknown: "Unknown",
-};
 
 function getMode(values: (string | null | undefined)[]): string | null {
   const counts = new Map<string, number>();

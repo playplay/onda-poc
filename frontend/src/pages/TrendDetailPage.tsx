@@ -6,17 +6,11 @@ import AnalysisTable from "../components/AnalysisTable";
 import AnalysisFilters from "../components/AnalysisFilters";
 import { getEngagementLabel } from "../utils/engagement";
 import {
+  FAMILY_LABELS,
   ANALYSIS_FILTERABLE_FIELDS,
   type AnalysisFilterKey,
   type AnalysisFilterState,
 } from "../types";
-
-const FAMILY_LABELS: Record<string, string> = {
-  video: "Video",
-  static: "Static (Image/Doc)",
-  text: "Text Only",
-  unknown: "Unknown",
-};
 
 const EMPTY_FILTERS: AnalysisFilterState = Object.fromEntries(
   ANALYSIS_FILTERABLE_FIELDS.map((k) => [k, ""])

@@ -40,10 +40,16 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
   const [trends, setTrends] = useState<RankedTrend[]>([]);
   const [tab, setTab] = useState<"trends" | "gallery">("gallery");
   const [playplaySlugs, setPlayplaySlugs] = useState<Set<string>>(new Set());
+  const [accountNames, setAccountNames] = useState<Map<string, string>>(new Map());
 
   // Analysis state per trend rank
   const [analysisStatus, setAnalysisStatus] = useState<Record<number, AnalysisStatus>>({});
   const [analyses, setAnalyses] = useState<GeminiAnalysis[]>([]);
+
+  const allPostScores = useMemo(
+    () => posts.map((p) => p.engagement_score),
+    [posts]
+  );
 
   // Helper: derive analysis status from trends + analyses
   const deriveAnalysisStatus = useCallback(
@@ -113,19 +119,20 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
     }
   }, [jobId, deriveAnalysisStatus]);
 
-  // Build PlayPlay slugs set from watched accounts
+  // Build account name map + PlayPlay slugs from watched accounts
   useEffect(() => {
     if (!job?.sector) return;
     getAccounts(job.sector).then((accounts) => {
-      const slugs = new Set(
-        accounts
-          .filter((a) => a.is_playplay_client)
-          .map((a) => {
-            const match = a.linkedin_url.match(/\/(in|company)\/([^/]+)/);
-            return match ? match[2] : "";
-          })
-          .filter(Boolean)
-      );
+      const names = new Map<string, string>();
+      const slugs = new Set<string>();
+      for (const a of accounts) {
+        const match = a.linkedin_url.match(/\/(in|company)\/([^/]+)/);
+        const slug = match ? match[2] : "";
+        if (!slug) continue;
+        names.set(slug, a.name);
+        if (a.is_playplay_client) slugs.add(slug);
+      }
+      setAccountNames(names);
       setPlayplaySlugs(slugs);
     });
   }, [job?.sector]);
@@ -303,14 +310,14 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
           {tab === "trends" && (
             <TrendRanking
               trends={trends}
-              allPostScores={posts.map((p) => p.engagement_score)}
+              allPostScores={allPostScores}
               analyses={analyses}
               analysisStatus={analysisStatus}
               onLaunchAnalysis={handleLaunchAnalysis}
               onNavigateToTrend={handleNavigateToTrend}
             />
           )}
-          {tab === "gallery" && <PostGallery posts={posts} playplaySlugs={playplaySlugs} />}
+          {tab === "gallery" && <PostGallery posts={posts} playplaySlugs={playplaySlugs} accountNames={accountNames} />}
         </>
       )}
     </div>

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, distinct
@@ -14,7 +13,7 @@ from app.schemas.account import WatchedAccountCreate, WatchedAccountUpdate, Watc
 router = APIRouter()
 
 
-@router.get("/accounts/sectors", response_model=List[str])
+@router.get("/accounts/sectors", response_model=list[str])
 async def list_sectors(db: AsyncSession = Depends(get_db)):
     """Return distinct sectors from watched accounts (sorted)."""
     result = await db.execute(
@@ -23,7 +22,7 @@ async def list_sectors(db: AsyncSession = Depends(get_db)):
     return [row[0] for row in result.all()]
 
 
-@router.get("/accounts", response_model=List[WatchedAccountOut])
+@router.get("/accounts", response_model=list[WatchedAccountOut])
 async def list_accounts(
     sector: str | None = None,
     db: AsyncSession = Depends(get_db),

@@ -96,7 +96,7 @@ export default function AdminPage() {
     setFormError(null);
 
     if (editingId) {
-      const optimistic: WatchedAccount = { id: editingId, created_at: "", ...form };
+      const optimistic: WatchedAccount = { id: editingId, created_at: "", is_playplay_client: false, ...form };
       applyAndCache(accounts.map((a) => (a.id === editingId ? optimistic : a)));
       setShowModal(false);
       try {
@@ -111,6 +111,7 @@ export default function AdminPage() {
       const optimistic: WatchedAccount = {
         id: tempId,
         created_at: new Date().toISOString(),
+        is_playplay_client: false,
         ...form,
       };
       applyAndCache([...accounts, optimistic]);
@@ -236,7 +237,7 @@ export default function AdminPage() {
                 : "text-gray-600 border-gray-200 hover:border-gray-400"
             }`}
           >
-            PlayPlay only
+            PlayPlay Client only
           </button>
         </div>
       )}

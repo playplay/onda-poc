@@ -24,6 +24,7 @@ from app.models.post import Post
 from app.models.scrape_job import ScrapeJob
 from app.models.watched_account import WatchedAccount
 from app.services.classifier import classify_format_family
+from app.services.date_utils import parse_date
 from app.services.ranking import compute_engagement_score
 from app.services.video_downloader import start_video_download
 
@@ -294,16 +295,6 @@ async def check_and_process_scrape(db: AsyncSession, job: ScrapeJob) -> None:
     await db.commit()
 
 
-def _parse_date(raw_date) -> datetime | None:
-    if not raw_date:
-        return None
-    try:
-        dt = datetime.fromisoformat(str(raw_date).replace("Z", "+00:00"))
-        return dt.replace(tzinfo=None)
-    except (ValueError, TypeError):
-        return None
-
-
 def _item_to_post(item: dict, job: ScrapeJob) -> Post:
     """Map a Bright Data LinkedIn post item to a Post model."""
     reactions = int(item.get("num_likes", 0) or 0)
@@ -356,6 +347,6 @@ def _item_to_post(item: dict, job: ScrapeJob) -> Post:
         video_url=video_url,
         image_url=image_url,
         duration_seconds=duration_seconds,
-        publication_date=_parse_date(item.get("date_posted")),
+        publication_date=parse_date(item.get("date_posted")),
         raw_data=item,
     )

@@ -4,6 +4,7 @@ import type { Post } from "../types";
 interface Props {
   posts: Post[];
   playplaySlugs?: Set<string>;
+  accountNames?: Map<string, string>;
 }
 
 const FORMAT_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -35,18 +36,28 @@ function computeEngagement(post: Post) {
   return post.reactions + post.comments * 3;
 }
 
-export default function PostGallery({ posts, playplaySlugs }: Props) {
+export default function PostGallery({ posts, playplaySlugs, accountNames }: Props) {
   const [filterFormat, setFilterFormat] = useState<string | null>(null);
   const [filterPlayPlay, setFilterPlayPlay] = useState(false);
 
-  const formats = useMemo(() => {
-    const set = new Set<string>();
+  const formatCounts = useMemo(() => {
+    const map = new Map<string, number>();
     for (const p of posts) {
       const fmt = normalizeFormat(p.format_family);
-      if (fmt) set.add(fmt);
+      if (fmt) map.set(fmt, (map.get(fmt) || 0) + 1);
     }
-    return Array.from(set).sort();
+    return map;
   }, [posts]);
+
+  const formats = useMemo(
+    () => Array.from(formatCounts.keys()).sort(),
+    [formatCounts]
+  );
+
+  const playplayCount = useMemo(
+    () => playplaySlugs ? posts.filter((p) => playplaySlugs.has(p.author_name || "")).length : 0,
+    [posts, playplaySlugs]
+  );
 
   const filtered = useMemo(() => {
     let result = [...posts].sort((a, b) => computeEngagement(b) - computeEngagement(a));
@@ -75,7 +86,7 @@ export default function PostGallery({ posts, playplaySlugs }: Props) {
               : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
           }`}
         >
-          All
+          All ({posts.length})
         </button>
         {playplaySlugs && playplaySlugs.size > 0 && (
           <button
@@ -86,7 +97,7 @@ export default function PostGallery({ posts, playplaySlugs }: Props) {
                 : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
             }`}
           >
-            PlayPlay Client
+            PlayPlay Client ({playplayCount})
           </button>
         )}
         {formats.map((fmt) => {
@@ -102,7 +113,7 @@ export default function PostGallery({ posts, playplaySlugs }: Props) {
                   : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
               }`}
             >
-              {fmt}
+              {fmt} ({formatCounts.get(fmt) || 0})
             </button>
           );
         })}
@@ -169,8 +180,8 @@ export default function PostGallery({ posts, playplaySlugs }: Props) {
               {/* Info */}
               <div className="px-4 py-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {post.author_name || "Unknown"}
+                  <p className="text-base font-semibold text-gray-900 truncate">
+                    {accountNames?.get(post.author_name || "") || post.author_name || "Unknown"}
                   </p>
                   {fmt && (
                     <span className={`shrink-0 text-xs px-2 py-0.5 rounded ${style.bg} ${style.text}`}>

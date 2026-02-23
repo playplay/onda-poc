@@ -15,6 +15,7 @@ import type {
 
 const api = axios.create({
   baseURL: "/api",
+  timeout: 30_000,
 });
 
 export async function listScrapeJobs(limit = 20): Promise<ScrapeJob[]> {
@@ -136,7 +137,11 @@ export function getCachedSectors(): string[] | null {
   return _sectorsCache;
 }
 
-export async function getSectors(): Promise<string[]> {
+export async function getSectors(forceRefresh = false): Promise<string[]> {
+  if (forceRefresh) {
+    _sectorsFetch = null;
+    _sectorsCache = null;
+  }
   if (_sectorsCache) return _sectorsCache;
   return _fetchSectors();
 }
@@ -171,15 +176,32 @@ export function streamTrendSummary(
 ): () => void {
   const eventSource = new EventSource(`/api/trends/${jobId}/rank/${rank}/summary`);
 
+  // Inactivity timeout: close if no data received for 60s
+  let inactivityTimer = setTimeout(() => {
+    onError("Summary timed out (no data for 60s)");
+    eventSource.close();
+  }, 60_000);
+
+  const resetInactivityTimer = () => {
+    clearTimeout(inactivityTimer);
+    inactivityTimer = setTimeout(() => {
+      onError("Summary timed out (no data for 60s)");
+      eventSource.close();
+    }, 60_000);
+  };
+
   eventSource.onmessage = (event) => {
+    resetInactivityTimer();
     try {
       const data = JSON.parse(event.data);
       if (data.type === "chunk") {
         onChunk(data.content);
       } else if (data.type === "done") {
+        clearTimeout(inactivityTimer);
         onDone();
         eventSource.close();
       } else if (data.type === "error") {
+        clearTimeout(inactivityTimer);
         onError(data.message);
         eventSource.close();
       }
@@ -189,9 +211,13 @@ export function streamTrendSummary(
   };
 
   eventSource.onerror = () => {
+    clearTimeout(inactivityTimer);
     onError("Connection lost");
     eventSource.close();
   };
 
-  return () => eventSource.close();
+  return () => {
+    clearTimeout(inactivityTimer);
+    eventSource.close();
+  };
 }

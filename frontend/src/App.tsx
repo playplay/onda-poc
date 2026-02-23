@@ -100,7 +100,7 @@ export default function App() {
       if (!intervalRef.current) {
         intervalRef.current = setInterval(() => {
           refreshJobs();
-        }, 5000);
+        }, 8000);
       }
     } else {
       if (intervalRef.current) {
