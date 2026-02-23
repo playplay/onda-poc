@@ -125,21 +125,26 @@ async def start_scrape(db: AsyncSession, job: ScrapeJob, company_accounts: list[
             await db.commit()
             return
 
-        batch = [{"url": _normalize_url(a.linkedin_url)} for a in company_accounts]
+        urls = [_normalize_url(a.linkedin_url) for a in company_accounts]
 
-        # Retry once on failure (BD API can be intermittent with validation)
+        # BD API has inconsistent validation: sometimes rejects content_type,
+        # sometimes requires it. Try both variants on failure.
+        batch_variants = [
+            [{"url": u} for u in urls],
+            [{"url": u, "content_type": ""} for u in urls],
+        ]
+
         last_err: Exception | None = None
         async with httpx.AsyncClient(timeout=30) as client:
-            for attempt in range(2):
+            for i, batch in enumerate(batch_variants):
                 try:
                     snapshot_id = await _trigger_batch(client, batch)
                     last_err = None
                     break
                 except Exception as e:
                     last_err = e
-                    if attempt == 0:
-                        logger.warning(f"Bright Data trigger attempt 1 failed, retrying: {e}")
-                        await asyncio.sleep(2)
+                    logger.warning(f"Bright Data trigger variant {i+1}/{len(batch_variants)} failed: {e}")
+                    await asyncio.sleep(1)
             if last_err:
                 raise last_err
 
