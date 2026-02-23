@@ -122,7 +122,7 @@ async def start_scrape(db: AsyncSession, job: ScrapeJob, company_accounts: list[
             await db.commit()
             return
 
-        batch = [{"url": _normalize_url(a.linkedin_url)} for a in company_accounts]
+        batch = [{"url": _normalize_url(a.linkedin_url), "content_type": ""} for a in company_accounts]
 
         async with httpx.AsyncClient(timeout=30) as client:
             snapshot_id = await _trigger_batch(client, batch)
