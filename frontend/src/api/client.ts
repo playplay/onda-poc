@@ -33,6 +33,10 @@ export async function getScrapeStatus(jobId: string): Promise<ScrapeJob> {
   return data;
 }
 
+export async function deleteScrapeJob(jobId: string): Promise<void> {
+  await api.delete(`/scrape/${jobId}`);
+}
+
 export async function getPosts(
   jobId: string,
   opts?: {

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db import get_db
-from app.models.post import Post
+from app.models.post import GeminiAnalysis, Post
 from app.models.scrape_job import ScrapeJob
 from app.models.watched_account import WatchedAccount
 from app.schemas.scrape import ScrapeRequest, ScrapeJobOut
@@ -66,6 +66,7 @@ async def trigger_scrape(
         return job
 
     backends: list[str] = []
+    bd_error: str | None = None
     job.status = "running"
 
     # Company scrape: Bright Data (primary) or Apify fallback
@@ -75,6 +76,13 @@ async def trigger_scrape(
             await bd_start(db, job, company_accounts)
             if job.status == "running":
                 backends.append("brightdata")
+            else:
+                # BD failed — save error and reset state for person scrape
+                bd_error = job.error_message
+                logger.warning(f"Bright Data trigger failed for '{req.sector}': {bd_error}")
+                job.status = "running"
+                job.error_message = None
+                job.completed_at = None
         else:
             from app.services.apify_scraper import start_scrape as apify_start
             await apify_start(db, job)
@@ -87,7 +95,6 @@ async def trigger_scrape(
         try:
             run_ids = await start_profile_scrape(db, job, person_accounts)
             job.profile_apify_run_ids = run_ids
-            job.status = "running"  # ensure running even if company failed
             backends.append("profile")
         except Exception as e:
             logger.warning(f"Failed to start profile scrape: {e}")
@@ -96,6 +103,10 @@ async def trigger_scrape(
             f"Skipping {len(person_accounts)} person accounts for sector '{req.sector}': "
             "APIFY_TOKEN not configured"
         )
+
+    # If BD failed but person scrape started, store BD error as warning
+    if bd_error and backends:
+        job.error_message = f"[Bright Data failed: {bd_error}]"
 
     job.scraper_backend = "+".join(backends) if backends else None
     await db.commit()
@@ -122,6 +133,29 @@ async def get_scrape_status(
         await db.refresh(job)
 
     return job
+
+
+@router.delete("/scrape/{job_id}", status_code=204)
+async def delete_scrape_job(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a scrape job and all associated posts + analyses."""
+    job = await db.get(ScrapeJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Scrape job not found")
+
+    # Delete analyses for all posts in this job
+    from sqlalchemy import delete as sa_delete
+    post_ids_q = select(Post.id).where(Post.scrape_job_id == job_id)
+    await db.execute(
+        sa_delete(GeminiAnalysis).where(GeminiAnalysis.post_id.in_(post_ids_q))
+    )
+    await db.execute(
+        sa_delete(Post).where(Post.scrape_job_id == job_id)
+    )
+    await db.delete(job)
+    await db.commit()
 
 
 async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:

@@ -93,7 +93,10 @@ async def _trigger_batch(
         },
         json=batch,
     )
-    response.raise_for_status()
+    if response.status_code >= 400:
+        body = response.text[:500]
+        logger.error(f"Bright Data trigger failed ({response.status_code}): {body}")
+        response.raise_for_status()
     return response.json()["snapshot_id"]
 
 
@@ -122,10 +125,23 @@ async def start_scrape(db: AsyncSession, job: ScrapeJob, company_accounts: list[
             await db.commit()
             return
 
-        batch = [{"url": _normalize_url(a.linkedin_url), "content_type": ""} for a in company_accounts]
+        batch = [{"url": _normalize_url(a.linkedin_url)} for a in company_accounts]
 
+        # Retry once on failure (BD API can be intermittent with validation)
+        last_err: Exception | None = None
         async with httpx.AsyncClient(timeout=30) as client:
-            snapshot_id = await _trigger_batch(client, batch)
+            for attempt in range(2):
+                try:
+                    snapshot_id = await _trigger_batch(client, batch)
+                    last_err = None
+                    break
+                except Exception as e:
+                    last_err = e
+                    if attempt == 0:
+                        logger.warning(f"Bright Data trigger attempt 1 failed, retrying: {e}")
+                        await asyncio.sleep(2)
+            if last_err:
+                raise last_err
 
         job.brightdata_snapshot_id = json.dumps({"company": snapshot_id})
 
