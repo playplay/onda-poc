@@ -9,7 +9,7 @@ import AdminPage from "./pages/AdminPage";
 
 function formatDate(iso: string) {
   const d = new Date(iso);
-  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function Spinner({ className = "" }: { className?: string }) {

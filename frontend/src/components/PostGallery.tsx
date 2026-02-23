@@ -5,6 +5,7 @@ interface Props {
   posts: Post[];
   playplaySlugs?: Set<string>;
   accountNames?: Map<string, string>;
+  accountTypes?: Map<string, "company" | "person">;
 }
 
 const FORMAT_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -36,9 +37,40 @@ function computeEngagement(post: Post) {
   return post.reactions + post.comments * 3;
 }
 
-export default function PostGallery({ posts, playplaySlugs, accountNames }: Props) {
+function capitalize(s: string) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function PersonIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
+      <path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" />
+    </svg>
+  );
+}
+
+function BuildingIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 01-1 1h-2a1 1 0 01-1-1v-2a1 1 0 00-1-1H9a1 1 0 00-1 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V4zm3 1h2v2H7V5zm2 4H7v2h2V9zm2-4h2v2h-2V5zm2 4h-2v2h2V9z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function mapLookup<T>(map: Map<string, T> | undefined, key: string): T | undefined {
+  if (!map) return undefined;
+  return map.get(key) ?? map.get(key.toLowerCase());
+}
+
+function setHas(set: Set<string> | undefined, key: string): boolean {
+  if (!set) return false;
+  return set.has(key) || set.has(key.toLowerCase());
+}
+
+export default function PostGallery({ posts, playplaySlugs, accountNames, accountTypes }: Props) {
   const [filterFormat, setFilterFormat] = useState<string | null>(null);
   const [filterPlayPlay, setFilterPlayPlay] = useState(false);
+  const [filterAccountType, setFilterAccountType] = useState<"company" | "person" | null>(null);
 
   const formatCounts = useMemo(() => {
     const map = new Map<string, number>();
@@ -55,9 +87,23 @@ export default function PostGallery({ posts, playplaySlugs, accountNames }: Prop
   );
 
   const playplayCount = useMemo(
-    () => playplaySlugs ? posts.filter((p) => playplaySlugs.has(p.author_name || "")).length : 0,
+    () => playplaySlugs ? posts.filter((p) => setHas(playplaySlugs, p.author_name || "")).length : 0,
     [posts, playplaySlugs]
   );
+
+  const accountTypeCounts = useMemo(() => {
+    if (!accountTypes || accountTypes.size === 0) return { company: 0, person: 0 };
+    let company = 0;
+    let person = 0;
+    for (const p of posts) {
+      const t = mapLookup(accountTypes, p.author_name || "");
+      if (t === "company") company++;
+      else if (t === "person") person++;
+    }
+    return { company, person };
+  }, [posts, accountTypes]);
+
+  const hasAccountTypes = accountTypeCounts.company > 0 || accountTypeCounts.person > 0;
 
   const filtered = useMemo(() => {
     let result = [...posts].sort((a, b) => computeEngagement(b) - computeEngagement(a));
@@ -65,10 +111,13 @@ export default function PostGallery({ posts, playplaySlugs, accountNames }: Prop
       result = result.filter((p) => normalizeFormat(p.format_family) === filterFormat);
     }
     if (filterPlayPlay && playplaySlugs) {
-      result = result.filter((p) => playplaySlugs.has(p.author_name || ""));
+      result = result.filter((p) => setHas(playplaySlugs, p.author_name || ""));
+    }
+    if (filterAccountType && accountTypes) {
+      result = result.filter((p) => mapLookup(accountTypes, p.author_name || "") === filterAccountType);
     }
     return result;
-  }, [posts, filterFormat, filterPlayPlay, playplaySlugs]);
+  }, [posts, filterFormat, filterPlayPlay, filterAccountType, playplaySlugs, accountTypes]);
 
   if (posts.length === 0) {
     return <p className="text-gray-400 text-center py-8 text-sm">No posts found.</p>;
@@ -79,15 +128,45 @@ export default function PostGallery({ posts, playplaySlugs, accountNames }: Prop
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
         <button
-          onClick={() => setFilterFormat(null)}
+          onClick={() => { setFilterFormat(null); setFilterAccountType(null); }}
           className={`px-3 py-1 text-xs rounded-full border transition-colors ${
-            filterFormat === null
+            filterFormat === null && filterAccountType === null
               ? "bg-violet-600 text-white border-violet-600"
               : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
           }`}
         >
           All ({posts.length})
         </button>
+        {hasAccountTypes && (
+          <>
+            <button
+              onClick={() => setFilterAccountType(filterAccountType === "company" ? null : "company")}
+              className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                filterAccountType === "company"
+                  ? "bg-gray-100 text-gray-700 border-gray-300"
+                  : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
+              }`}
+            >
+              <span className="inline-flex items-center gap-1">
+                <BuildingIcon className="w-3 h-3" />
+                Companies ({accountTypeCounts.company})
+              </span>
+            </button>
+            <button
+              onClick={() => setFilterAccountType(filterAccountType === "person" ? null : "person")}
+              className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                filterAccountType === "person"
+                  ? "bg-blue-50 text-blue-700 border-blue-200"
+                  : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
+              }`}
+            >
+              <span className="inline-flex items-center gap-1">
+                <PersonIcon className="w-3 h-3" />
+                Persons ({accountTypeCounts.person})
+              </span>
+            </button>
+          </>
+        )}
         {playplaySlugs && playplaySlugs.size > 0 && (
           <button
             onClick={() => setFilterPlayPlay(!filterPlayPlay)}
@@ -113,7 +192,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames }: Prop
                   : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
               }`}
             >
-              {fmt} ({formatCounts.get(fmt) || 0})
+              {capitalize(fmt)} ({formatCounts.get(fmt) || 0})
             </button>
           );
         })}
@@ -125,6 +204,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames }: Prop
         {filtered.map((post) => {
           const fmt = normalizeFormat(post.format_family);
           const style = getFormatStyle(post.format_family);
+          const authorType = mapLookup(accountTypes, post.author_name || "");
           return (
             <a
               key={post.id}
@@ -135,7 +215,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames }: Prop
             >
               {/* Preview */}
               <div className="aspect-[4/3] overflow-hidden relative bg-gray-50">
-                {playplaySlugs?.has(post.author_name || "") && (
+                {setHas(playplaySlugs, post.author_name || "") && (
                   <div className="absolute top-0 right-0 z-10 overflow-hidden w-24 h-24 pointer-events-none">
                     <div className="absolute top-[11px] right-[-26px] w-[120px] bg-violet-600 text-white text-[11px] font-semibold py-[1px] rotate-45 shadow-sm text-center pl-[20px]">
                       PlayPlay
@@ -180,12 +260,19 @@ export default function PostGallery({ posts, playplaySlugs, accountNames }: Prop
               {/* Info */}
               <div className="px-4 py-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-base font-semibold text-gray-900 truncate">
-                    {accountNames?.get(post.author_name || "") || post.author_name || "Unknown"}
+                  <p className="text-base font-semibold text-gray-900 truncate flex items-center gap-1.5">
+                    {authorType === "person" ? (
+                      <PersonIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                    ) : authorType === "company" ? (
+                      <BuildingIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                    ) : null}
+                    <span className="truncate">
+                      {mapLookup(accountNames, post.author_name || "") || post.author_name || "Unknown"}
+                    </span>
                   </p>
                   {fmt && (
                     <span className={`shrink-0 text-xs px-2 py-0.5 rounded ${style.bg} ${style.text}`}>
-                      {fmt}
+                      {capitalize(fmt)}
                     </span>
                   )}
                 </div>

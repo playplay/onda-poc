@@ -5,26 +5,29 @@ export interface ScrapeRequest {
 export interface WatchedAccount {
   id: string;
   name: string;
-  type: "company";
+  type: "company" | "person";
   linkedin_url: string;
   sector: string;
+  company_name: string | null;
   is_playplay_client: boolean;
   created_at: string;
 }
 
 export interface WatchedAccountCreate {
   name: string;
-  type: "company";
+  type: "company" | "person";
   linkedin_url: string;
   sector: string;
+  company_name?: string | null;
   is_playplay_client?: boolean;
 }
 
 export interface WatchedAccountUpdate {
   name?: string;
-  type?: "company";
+  type?: "company" | "person";
   linkedin_url?: string;
   sector?: string;
+  company_name?: string | null;
   is_playplay_client?: boolean;
 }
 

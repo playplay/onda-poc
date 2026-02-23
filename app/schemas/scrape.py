@@ -22,6 +22,7 @@ class ScrapeJobOut(BaseModel):
     video_download_run_id: str | None
     brightdata_snapshot_id: str | None = None
     scraper_backend: str | None = None
+    profile_apify_run_ids: list[Any] | None = None
     error_message: str | None
     created_at: datetime
     completed_at: datetime | None

@@ -23,6 +23,7 @@ const EMPTY_FORM: WatchedAccountCreate = {
   type: "company",
   linkedin_url: "",
   sector: "",
+  company_name: null,
   is_playplay_client: false,
 };
 
@@ -41,8 +42,14 @@ export default function AdminPage() {
   const [form, setForm] = useState<WatchedAccountCreate>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [sectorMode, setSectorMode] = useState<"select" | "new">("select");
+  const [companyMode, setCompanyMode] = useState<"select" | "other">("select");
 
   const sectors = [...new Set(accounts.map((a) => a.sector))].sort();
+
+  // Companies in the currently selected sector (for person → company dropdown)
+  const companiesInSector = accounts.filter(
+    (a) => a.type === "company" && a.sector === form.sector
+  );
 
   const base = accounts.filter((a) => {
     if (filterSector && a.sector !== filterSector) return false;
@@ -71,6 +78,7 @@ export default function AdminPage() {
     setForm(EMPTY_FORM);
     setFormError(null);
     setSectorMode(sectors.length > 0 ? "select" : "new");
+    setCompanyMode("select");
     setShowModal(true);
   }
 
@@ -81,10 +89,20 @@ export default function AdminPage() {
       type: account.type,
       linkedin_url: account.linkedin_url,
       sector: account.sector,
+      company_name: account.company_name,
       is_playplay_client: account.is_playplay_client,
     });
     setFormError(null);
     setSectorMode("select");
+    // If person with company_name that's not a known company → "other" mode
+    if (account.type === "person" && account.company_name) {
+      const knownCompany = accounts.find(
+        (a) => a.type === "company" && a.sector === account.sector && a.name === account.company_name
+      );
+      setCompanyMode(knownCompany ? "select" : "other");
+    } else {
+      setCompanyMode("select");
+    }
     setShowModal(true);
   }
 
@@ -93,14 +111,30 @@ export default function AdminPage() {
       setFormError("All fields are required.");
       return;
     }
+    if (form.type === "person" && !form.company_name) {
+      setFormError("Please select or enter a company for this person.");
+      return;
+    }
     setFormError(null);
 
+    // Clean company_name for company accounts
+    const payload = {
+      ...form,
+      company_name: form.type === "person" ? form.company_name : null,
+    };
+
     if (editingId) {
-      const optimistic: WatchedAccount = { id: editingId, created_at: "", is_playplay_client: false, ...form };
+      const optimistic: WatchedAccount = {
+        id: editingId,
+        created_at: "",
+        is_playplay_client: false,
+        ...payload,
+        company_name: payload.company_name ?? null,
+      };
       applyAndCache(accounts.map((a) => (a.id === editingId ? optimistic : a)));
       setShowModal(false);
       try {
-        const updated = await updateAccount(editingId, form);
+        const updated = await updateAccount(editingId, payload);
         applyAndCache(accounts.map((a) => (a.id === editingId ? updated : a)));
       } catch {
         getAccounts().then(applyAndCache);
@@ -112,12 +146,13 @@ export default function AdminPage() {
         id: tempId,
         created_at: new Date().toISOString(),
         is_playplay_client: false,
-        ...form,
+        ...payload,
+        company_name: payload.company_name ?? null,
       };
       applyAndCache([...accounts, optimistic]);
       setShowModal(false);
       try {
-        const created = await createAccount(form);
+        const created = await createAccount(payload);
         applyAndCache(
           accountsCache!.map((a) => (a.id === tempId ? created : a))
         );
@@ -140,10 +175,35 @@ export default function AdminPage() {
   }
 
   const AccountRow = ({ account }: { account: WatchedAccount }) => (
-    <tr className="border-t border-gray-100 hover:bg-gray-50">
-      <td className="px-4 py-2 font-medium text-gray-900">{account.name}</td>
-      <td className="px-4 py-2 text-gray-600">{account.sector}</td>
-      <td className="px-4 py-2">
+    <tr className="border-t border-gray-100 hover:bg-gray-50 h-14">
+      <td className="px-4 py-2 align-middle">
+        <a
+          href={account.linkedin_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group"
+        >
+          <div className="font-medium text-gray-900 group-hover:text-violet-700 transition-colors">
+            {account.name}
+          </div>
+          {account.type === "person" && account.company_name && (
+            <div className="text-gray-400 text-xs mt-0.5">
+              {account.company_name}
+            </div>
+          )}
+        </a>
+      </td>
+      <td className="px-4 py-2 align-middle">
+        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+          account.type === "person"
+            ? "bg-blue-50 text-blue-700"
+            : "bg-gray-100 text-gray-600"
+        }`}>
+          {account.type === "person" ? "Person" : "Company"}
+        </span>
+      </td>
+      <td className="px-4 py-2 align-middle text-gray-600">{account.sector}</td>
+      <td className="px-4 py-2 align-middle">
         <input
           type="checkbox"
           checked={account.is_playplay_client}
@@ -159,17 +219,7 @@ export default function AdminPage() {
           className="rounded border-gray-300 text-gray-400 focus:ring-gray-300 cursor-pointer w-3.5 h-3.5"
         />
       </td>
-      <td className="px-4 py-2 text-gray-500 max-w-xs truncate">
-        <a
-          href={account.linkedin_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:underline"
-        >
-          {account.linkedin_url}
-        </a>
-      </td>
-      <td className="px-4 py-2 text-right whitespace-nowrap">
+      <td className="px-4 py-2 align-middle text-right whitespace-nowrap">
         <button
           onClick={() => openEdit(account)}
           title="Edit"
@@ -202,7 +252,7 @@ export default function AdminPage() {
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Watched Accounts</h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            LinkedIn company pages tracked per sector.
+            LinkedIn company pages and personal profiles tracked per sector.
           </p>
         </div>
         <button
@@ -254,9 +304,9 @@ export default function AdminPage() {
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-4 py-2 font-medium text-gray-600">Name</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600">Type</th>
                 <th className="text-left px-4 py-2 font-medium text-gray-600">Sector</th>
                 <th className="text-left px-4 py-2 font-medium text-gray-600">PlayPlay Client?</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">LinkedIn URL</th>
                 <th className="px-4 py-2"></th>
               </tr>
             </thead>
@@ -282,12 +332,36 @@ export default function AdminPage() {
 
             <div className="space-y-3">
               <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Type *</label>
+                <div className="flex gap-1 bg-gray-100 rounded-md p-0.5">
+                  {(["company", "person"] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setForm((f) => ({
+                        ...f,
+                        type: t,
+                        company_name: t === "company" ? null : f.company_name,
+                      }))}
+                      className={`flex-1 px-3 py-1.5 text-sm rounded transition-colors ${
+                        form.type === t
+                          ? "bg-white text-gray-900 shadow-sm font-medium"
+                          : "text-gray-500 hover:text-gray-700"
+                      }`}
+                    >
+                      {t === "company" ? "Company" : "Person"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">Name *</label>
                 <input
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g. Apple, Société Générale"
+                  placeholder={form.type === "person" ? "e.g. Thibaut Machet" : "e.g. PlayPlay"}
                   autoFocus
                   className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
                 />
@@ -299,7 +373,7 @@ export default function AdminPage() {
                   <div className="flex gap-2">
                     <select
                       value={form.sector}
-                      onChange={(e) => setForm({ ...form, sector: e.target.value })}
+                      onChange={(e) => setForm({ ...form, sector: e.target.value, company_name: null })}
                       className="flex-1 border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
                     >
                       <option value="">Select a sector…</option>
@@ -309,7 +383,7 @@ export default function AdminPage() {
                     </select>
                     <button
                       type="button"
-                      onClick={() => { setSectorMode("new"); setForm((f) => ({ ...f, sector: "" })); }}
+                      onClick={() => { setSectorMode("new"); setForm((f) => ({ ...f, sector: "", company_name: null })); }}
                       className="px-3 py-2 text-xs border border-gray-200 rounded-md text-gray-600 hover:bg-gray-50 whitespace-nowrap"
                     >
                       + New
@@ -338,13 +412,62 @@ export default function AdminPage() {
                 )}
               </div>
 
+              {form.type === "person" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Company *</label>
+                  {companyMode === "select" && companiesInSector.length > 0 ? (
+                    <div className="flex gap-2">
+                      <select
+                        value={form.company_name ?? ""}
+                        onChange={(e) => setForm({ ...form, company_name: e.target.value || null })}
+                        className="flex-1 border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+                      >
+                        <option value="">Select a company…</option>
+                        {companiesInSector.map((c) => (
+                          <option key={c.id} value={c.name}>{c.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => { setCompanyMode("other"); setForm((f) => ({ ...f, company_name: null })); }}
+                        className="px-3 py-2 text-xs border border-gray-200 rounded-md text-gray-600 hover:bg-gray-50 whitespace-nowrap"
+                      >
+                        Other
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={form.company_name ?? ""}
+                        onChange={(e) => setForm({ ...form, company_name: e.target.value || null })}
+                        placeholder="e.g. PlayPlay"
+                        className="flex-1 border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+                      />
+                      {companiesInSector.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => { setCompanyMode("select"); setForm((f) => ({ ...f, company_name: null })); }}
+                          className="px-3 py-2 text-xs border border-gray-200 rounded-md text-gray-600 hover:bg-gray-50 whitespace-nowrap"
+                        >
+                          ← Back
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">LinkedIn URL *</label>
                 <input
                   type="url"
                   value={form.linkedin_url}
                   onChange={(e) => setForm({ ...form, linkedin_url: e.target.value })}
-                  placeholder="https://www.linkedin.com/company/apple"
+                  placeholder={form.type === "person"
+                    ? "https://www.linkedin.com/in/thibautmachet"
+                    : "https://www.linkedin.com/company/playplay"
+                  }
                   className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
                 />
               </div>

@@ -14,7 +14,7 @@ export default function ScrapeForm({ onJobCreated }: ScrapeFormProps) {
   const [selectedSector, setSelectedSector] = useState("");
 
   useEffect(() => {
-    getSectors().then(setSectors);
+    getSectors(true).then(setSectors);
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {

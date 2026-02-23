@@ -3,7 +3,8 @@ Bright Data scraper service for LinkedIn posts — Onda company-only mode.
 
 Flow:
   start_scrape()            → trigger batch request for company accounts
-  check_and_process_scrape() → poll snapshot status, fetch & store posts on completion
+  check_scrape_ready()      → poll snapshot status
+  fetch_and_process_results() → fetch & store posts on completion
 """
 
 import asyncio
@@ -16,7 +17,7 @@ from datetime import datetime
 from urllib.parse import unquote
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -26,7 +27,7 @@ from app.models.watched_account import WatchedAccount
 from app.services.classifier import classify_format_family
 from app.services.date_utils import parse_date
 from app.services.ranking import compute_engagement_score
-from app.services.video_downloader import start_video_download
+
 
 logger = logging.getLogger(__name__)
 
@@ -96,25 +97,32 @@ async def _trigger_batch(
     return response.json()["snapshot_id"]
 
 
-async def start_scrape(db: AsyncSession, job: ScrapeJob) -> None:
-    """Trigger Bright Data batch request for all company accounts in the sector."""
+async def start_scrape(db: AsyncSession, job: ScrapeJob, company_accounts: list[WatchedAccount] | None = None) -> None:
+    """Trigger Bright Data batch request for company accounts in the sector.
+
+    If company_accounts is provided, use those directly.
+    Otherwise, query all company accounts for the sector (backward compat).
+    """
     job.status = "running"
-    job.scraper_backend = "brightdata"
 
     try:
-        result = await db.execute(
-            select(WatchedAccount).where(WatchedAccount.sector == job.sector)
-        )
-        accounts = result.scalars().all()
+        if company_accounts is None:
+            result = await db.execute(
+                select(WatchedAccount).where(
+                    WatchedAccount.sector == job.sector,
+                    WatchedAccount.type == "company",
+                )
+            )
+            company_accounts = list(result.scalars().all())
 
-        if not accounts:
+        if not company_accounts:
             job.status = "failed"
-            job.error_message = f"No watched accounts found for sector: {job.sector}"
+            job.error_message = f"No company accounts found for sector: {job.sector}"
             job.completed_at = datetime.utcnow()
             await db.commit()
             return
 
-        batch = [{"url": _normalize_url(a.linkedin_url)} for a in accounts]
+        batch = [{"url": _normalize_url(a.linkedin_url)} for a in company_accounts]
 
         async with httpx.AsyncClient(timeout=30) as client:
             snapshot_id = await _trigger_batch(client, batch)
@@ -123,7 +131,7 @@ async def start_scrape(db: AsyncSession, job: ScrapeJob) -> None:
 
         logger.info(
             f"Bright Data snapshot triggered for sector '{job.sector}': {snapshot_id} "
-            f"({len(accounts)} company accounts)"
+            f"({len(company_accounts)} company accounts)"
         )
 
     except Exception as e:
@@ -168,131 +176,103 @@ async def _fetch_results(client: httpx.AsyncClient, snapshot_id: str) -> list[di
     return items if isinstance(items, list) else []
 
 
-async def check_and_process_scrape(db: AsyncSession, job: ScrapeJob) -> None:
-    """Poll Bright Data snapshots; when ALL ready, fetch results and store per-account posts."""
-    if job.status != "running":
-        return
-
+async def check_scrape_ready(job: ScrapeJob) -> str:
+    """Check if Bright Data snapshots are ready. Returns 'running', 'ready', or 'failed'."""
     raw_snapshot = job.brightdata_snapshot_id
     if not raw_snapshot:
-        return
+        return "ready"
 
     snapshot_map = _parse_snapshot_ids(raw_snapshot)
 
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            # Check progress for all snapshots in parallel
-            progress_tasks = {
-                key: _check_progress(client, sid)
-                for key, sid in snapshot_map.items()
-            }
-            statuses = {}
-            for key, coro in progress_tasks.items():
-                statuses[key] = await coro
+    async with httpx.AsyncClient(timeout=30) as client:
+        progress_tasks = {
+            key: _check_progress(client, sid)
+            for key, sid in snapshot_map.items()
+        }
+        statuses = {}
+        for key, coro in progress_tasks.items():
+            statuses[key] = await coro
 
-        # If any failed → mark job failed
-        failed = [k for k, s in statuses.items() if s == "failed"]
-        if failed:
-            job.status = "failed"
-            failed_ids = {k: snapshot_map[k] for k in failed}
-            job.error_message = f"Bright Data snapshot(s) failed: {failed_ids}"
-            job.completed_at = datetime.utcnow()
-            await db.commit()
-            return
+    if any(s == "failed" for s in statuses.values()):
+        return "failed"
 
-        # If any not ready → return early (frontend polls again)
-        if not all(s == "ready" for s in statuses.values()):
-            return
+    if not all(s == "ready" for s in statuses.values()):
+        return "running"
 
-        # Guard against double insertion (concurrent polling requests)
-        existing_count = (await db.execute(
-            select(func.count()).where(Post.scrape_job_id == job.id)
-        )).scalar()
-        if existing_count > 0:
-            job.status = "completed"
-            job.completed_at = datetime.utcnow()
-            await db.commit()
-            return
+    return "ready"
 
-        # All ready — fetch results from each snapshot in parallel
-        async with httpx.AsyncClient(timeout=60) as client:
-            fetch_tasks = [
-                _fetch_results(client, sid) for sid in snapshot_map.values()
-            ]
-            all_results = await asyncio.gather(*fetch_tasks)
 
-        # Merge all results
-        items: list[dict] = []
-        for result_list in all_results:
-            items.extend(result_list)
+async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Post]:
+    """Fetch Bright Data results, filter by company accounts, dedup, map to Post models."""
+    raw_snapshot = job.brightdata_snapshot_id
+    if not raw_snapshot:
+        return []
 
-        # Filter: remove errors + keep only posts by our watched accounts
-        result = await db.execute(
-            select(WatchedAccount).where(WatchedAccount.sector == job.sector)
-        )
-        accounts = result.scalars().all()
-        allowed_slugs = {_extract_slug(a.linkedin_url) for a in accounts}
-        allowed_slugs.discard("")  # remove empty slugs from bad URLs
+    snapshot_map = _parse_snapshot_ids(raw_snapshot)
 
-        items = [
-            item for item in items
-            if not item.get("error") and unquote(item.get("user_id", "")) in allowed_slugs
+    # Fetch results from each snapshot in parallel
+    async with httpx.AsyncClient(timeout=60) as client:
+        fetch_tasks = [
+            _fetch_results(client, sid) for sid in snapshot_map.values()
         ]
+        all_results = await asyncio.gather(*fetch_tasks)
 
-        # Deduplicate by post URL
-        seen_urls: set[str] = set()
-        unique_items: list[dict] = []
-        for item in items:
-            url = item.get("url", "")
-            if url and url not in seen_urls:
-                seen_urls.add(url)
-                unique_items.append(item)
-        items = unique_items
+    # Merge all results
+    items: list[dict] = []
+    for result_list in all_results:
+        items.extend(result_list)
 
-        logger.info(
-            f"Bright Data results for sector '{job.sector}': "
-            f"{len(items)} posts after filtering + dedup (allowed slugs: {allowed_slugs})"
+    # Filter: remove errors + keep only posts by our watched company accounts
+    result = await db.execute(
+        select(WatchedAccount).where(
+            WatchedAccount.sector == job.sector,
+            WatchedAccount.type == "company",
         )
+    )
+    accounts = result.scalars().all()
+    allowed_slugs = {_extract_slug(a.linkedin_url) for a in accounts}
+    allowed_slugs.discard("")
 
-        # Take the N most recent posts per account (by date)
-        items_by_user: dict[str, list[dict]] = defaultdict(list)
-        for item in items:
-            uid = unquote(item.get("user_id", "unknown"))
-            items_by_user[uid].append(item)
+    items = [
+        item for item in items
+        if not item.get("error") and unquote(item.get("user_id", "")) in allowed_slugs
+    ]
 
-        top_items: list[dict] = []
-        for uid, user_items in items_by_user.items():
-            user_items.sort(key=lambda x: x.get("date_posted", ""), reverse=True)
-            top_items.extend(user_items[:POSTS_PER_ACCOUNT])
+    # Deduplicate by post URL
+    seen_urls: set[str] = set()
+    unique_items: list[dict] = []
+    for item in items:
+        url = item.get("url", "")
+        if url and url not in seen_urls:
+            seen_urls.add(url)
+            unique_items.append(item)
+    items = unique_items
 
-        # Map to Post models
-        created_posts: list[Post] = []
-        for item in top_items:
-            post = _item_to_post(item, job)
-            db.add(post)
-            created_posts.append(post)
+    logger.info(
+        f"Bright Data results for sector '{job.sector}': "
+        f"{len(items)} posts after filtering + dedup (allowed slugs: {allowed_slugs})"
+    )
 
-        job.total_posts = len(created_posts)
+    # Take the N most recent posts per account (by date)
+    items_by_user: dict[str, list[dict]] = defaultdict(list)
+    for item in items:
+        uid = unquote(item.get("user_id", "unknown"))
+        items_by_user[uid].append(item)
 
-        # Auto-trigger video download for video posts
-        video_post_urls = [
-            p.post_url for p in created_posts
-            if p.content_type == "video" and p.post_url
-        ]
-        if video_post_urls:
-            await db.commit()
-            await start_video_download(db, job, video_post_urls)
-            return
-        else:
-            job.status = "completed"
-            job.completed_at = datetime.utcnow()
+    top_items: list[dict] = []
+    for uid, user_items in items_by_user.items():
+        user_items.sort(key=lambda x: x.get("date_posted", ""), reverse=True)
+        top_items.extend(user_items[:POSTS_PER_ACCOUNT])
 
-    except Exception as e:
-        job.status = "failed"
-        job.error_message = str(e)[:1000]
-        job.completed_at = datetime.utcnow()
+    # Map to Post models
+    created_posts: list[Post] = []
+    for item in top_items:
+        post = _item_to_post(item, job)
+        db.add(post)
+        created_posts.append(post)
 
-    await db.commit()
+    return created_posts
+
 
 
 def _item_to_post(item: dict, job: ScrapeJob) -> Post:

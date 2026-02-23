@@ -41,6 +41,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
   const [tab, setTab] = useState<"trends" | "gallery">("gallery");
   const [playplaySlugs, setPlayplaySlugs] = useState<Set<string>>(new Set());
   const [accountNames, setAccountNames] = useState<Map<string, string>>(new Map());
+  const [accountTypes, setAccountTypes] = useState<Map<string, "company" | "person">>(new Map());
 
   // Analysis state per trend rank
   const [analysisStatus, setAnalysisStatus] = useState<Record<number, AnalysisStatus>>({});
@@ -125,14 +126,28 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
     getAccounts(job.sector).then((accounts) => {
       const names = new Map<string, string>();
       const slugs = new Set<string>();
+      const types = new Map<string, "company" | "person">();
       for (const a of accounts) {
         const match = a.linkedin_url.match(/\/(in|company)\/([^/]+)/);
         const slug = match ? match[2] : "";
         if (!slug) continue;
+        // Map by slug (companies + new person scrapes use slug as author_name)
         names.set(slug, a.name);
-        if (a.is_playplay_client) slugs.add(slug);
+        types.set(slug, a.type);
+        // Also map by display name (old Apify person posts use full name as author_name)
+        names.set(a.name, a.name);
+        types.set(a.name, a.type);
+        // Case-insensitive fallback for name mismatches (e.g. "Antoine le Nel" vs "Antoine Le Nel")
+        names.set(a.name.toLowerCase(), a.name);
+        types.set(a.name.toLowerCase(), a.type);
+        if (a.is_playplay_client) {
+          slugs.add(slug);
+          slugs.add(a.name);
+          slugs.add(a.name.toLowerCase());
+        }
       }
       setAccountNames(names);
+      setAccountTypes(types);
       setPlayplaySlugs(slugs);
     });
   }, [job?.sector]);
@@ -317,7 +332,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
               onNavigateToTrend={handleNavigateToTrend}
             />
           )}
-          {tab === "gallery" && <PostGallery posts={posts} playplaySlugs={playplaySlugs} accountNames={accountNames} />}
+          {tab === "gallery" && <PostGallery posts={posts} playplaySlugs={playplaySlugs} accountNames={accountNames} accountTypes={accountTypes} />}
         </>
       )}
     </div>
