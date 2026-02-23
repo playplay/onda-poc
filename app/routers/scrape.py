@@ -13,7 +13,7 @@ from app.models.post import GeminiAnalysis, Post
 from app.models.scrape_job import ScrapeJob
 from app.models.watched_account import WatchedAccount
 from app.schemas.scrape import ScrapeRequest, ScrapeJobOut
-from app.services.video_downloader import check_and_process_video_download, start_video_download
+from app.services.video_downloader import check_and_process_video_download
 
 logger = logging.getLogger(__name__)
 
@@ -234,19 +234,8 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
             all_posts.extend(profile_posts)
 
         job.total_posts = len(all_posts)
-
-        # Auto-trigger video download for video posts
-        video_post_urls = [
-            p.post_url for p in all_posts
-            if p.content_type == "video" and p.post_url
-        ]
-        if video_post_urls:
-            await db.commit()
-            await start_video_download(db, job, video_post_urls)
-            return
-        else:
-            job.status = "completed"
-            job.completed_at = datetime.utcnow()
+        job.status = "completed"
+        job.completed_at = datetime.utcnow()
 
     except Exception as e:
         job.status = "failed"
