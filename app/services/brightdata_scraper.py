@@ -85,25 +85,27 @@ async def _trigger_batch(
     payload_preview = json.dumps(batch)[:500]
     logger.info(f"BD trigger: sending {len(batch)} items, payload={payload_preview}")
 
+    params = {
+        "dataset_id": DATASET_ID,
+        "type": "discover_new",
+        "discover_by": DISCOVER_BY,
+        "limit_per_input": POSTS_PER_ACCOUNT,
+    }
+
     response = await client.post(
         f"{BASE_URL}/trigger",
         headers=_headers(),
-        params={
-            "dataset_id": DATASET_ID,
-            "type": "discover_new",
-            "discover_by": DISCOVER_BY,
-            "limit_per_input": POSTS_PER_ACCOUNT,
-            "custom_output_fields": OUTPUT_FIELDS,
-        },
+        params=params,
         json=batch,
     )
 
     body = response.text[:500]
-    logger.info(f"BD trigger: status={response.status_code}, response={body}")
+    logger.info(f"BD trigger: status={response.status_code}, url={response.url}, response={body}")
 
     if response.status_code >= 400:
-        logger.error(f"Bright Data trigger failed ({response.status_code}): {body}")
-        response.raise_for_status()
+        raise RuntimeError(
+            f"Bright Data {response.status_code}: {body}"
+        )
     return response.json()["snapshot_id"]
 
 
