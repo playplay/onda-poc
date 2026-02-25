@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Routes, Route, Link, useLocation, useNavigate, Navigate } from "react-router-dom";
+import axios from "axios";
 import { listScrapeJobs, deleteScrapeJob } from "./api/client";
 import type { ScrapeJob } from "./types";
 import ScrapeForm from "./components/ScrapeForm";
 import ResultsPage from "./pages/ResultsPage";
 import TrendDetailPage from "./pages/TrendDetailPage";
 import AdminPage from "./pages/AdminPage";
+import LoginPage from "./pages/LoginPage";
 
 function formatDate(iso: string) {
   const d = new Date(iso);
@@ -71,11 +73,41 @@ function EmptyHome({ onNewSearch }: { onNewSearch: () => void }) {
 export default function App() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const [user, setUser] = useState<{ email: string } | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [jobs, setJobs] = useState<ScrapeJob[]>([]);
   const [jobsLoaded, setJobsLoaded] = useState(false);
   const [showNewSearch, setShowNewSearch] = useState(false);
   const [deleteJobId, setDeleteJobId] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    axios.get("/api/auth/me", { withCredentials: true })
+      .then(({ data }) => setUser(data))
+      .catch(() => setUser(null))
+      .finally(() => setAuthLoading(false));
+  }, []);
+
+  const handleLogout = async () => {
+    await axios.post("/api/auth/logout", {}, { withCredentials: true });
+    setUser(null);
+  };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Loading...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage onLogin={() => {
+      axios.get("/api/auth/me", { withCredentials: true })
+        .then(({ data }) => setUser(data))
+        .catch(() => setUser(null));
+    }} />;
+  }
 
   const refreshJobs = useCallback(() => {
     return listScrapeJobs(10)
@@ -164,6 +196,15 @@ export default function App() {
               className="bg-violet-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-violet-700 transition-colors"
             >
               New search
+            </button>
+            <button
+              onClick={handleLogout}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+              title="Sign out"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
             </button>
           </nav>
         </div>

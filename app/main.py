@@ -1,9 +1,11 @@
+import jwt as pyjwt
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.db import engine, Base
-from app.routers import scrape, posts, analysis, trend_summary, accounts
+from app.routers import scrape, posts, analysis, trend_summary, accounts, auth
 
 app = FastAPI(
     title="Onda API",
@@ -12,6 +14,21 @@ app = FastAPI(
 )
 
 _tables_created = False
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/auth") or path == "/health" or not path.startswith("/api"):
+        return await call_next(request)
+    token = request.cookies.get("onda_token")
+    if not token:
+        return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+    try:
+        pyjwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
+    except pyjwt.InvalidTokenError:
+        return JSONResponse(status_code=401, content={"detail": "Invalid token"})
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -31,6 +48,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(scrape.router, prefix="/api", tags=["scrape"])
 app.include_router(posts.router, prefix="/api", tags=["posts"])
 app.include_router(analysis.router, prefix="/api", tags=["analysis"])

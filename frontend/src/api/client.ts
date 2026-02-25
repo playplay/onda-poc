@@ -16,6 +16,7 @@ import type {
 const api = axios.create({
   baseURL: "/api",
   timeout: 30_000,
+  withCredentials: true,
 });
 
 export async function listScrapeJobs(limit = 20): Promise<ScrapeJob[]> {

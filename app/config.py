@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     VERCEL_OIDC_TOKEN: str = ""
     GEMINI_API_KEY: str = ""
     API_BRIGHT_DATA: str = ""
+    AUTH_EMAIL: str = ""
+    AUTH_PASSWORD: str = ""
+    JWT_SECRET: str = ""
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
 
     @property
