@@ -45,6 +45,11 @@ async def ensure_tables(request: Request, call_next):
             await conn.execute(text(
                 "ALTER TABLE posts ADD COLUMN IF NOT EXISTS claude_use_case VARCHAR(200)"
             ))
+            # Drop legacy columns removed from the ScrapeJob model
+            for col in ("content_type_filter", "is_corporate", "max_results"):
+                await conn.execute(text(
+                    f"ALTER TABLE scrape_jobs DROP COLUMN IF EXISTS {col}"
+                ))
         _tables_created = True
     return await call_next(request)
 
