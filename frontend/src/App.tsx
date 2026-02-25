@@ -93,23 +93,8 @@ export default function App() {
     setUser(null);
   };
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <p className="text-gray-400 text-sm">Loading...</p>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <LoginPage onLogin={() => {
-      axios.get("/api/auth/me", { withCredentials: true })
-        .then(({ data }) => setUser(data))
-        .catch(() => setUser(null));
-    }} />;
-  }
-
   const refreshJobs = useCallback(() => {
+    if (!user) return Promise.resolve();
     return listScrapeJobs(10)
       .then((data) => {
         setJobs(data);
@@ -119,7 +104,7 @@ export default function App() {
         console.error("Failed to load scrape jobs:", err);
         setJobsLoaded(true);
       });
-  }, []);
+  }, [user]);
 
   // Fetch jobs on navigation
   useEffect(() => {
@@ -150,6 +135,22 @@ export default function App() {
       }
     };
   }, [jobs, refreshJobs]);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Loading...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage onLogin={() => {
+      axios.get("/api/auth/me", { withCredentials: true })
+        .then(({ data }) => setUser(data))
+        .catch(() => setUser(null));
+    }} />;
+  }
 
   const handleJobCreated = async (jobId: string) => {
     setShowNewSearch(false);
