@@ -108,6 +108,12 @@ async def trigger_scrape(
     if bd_error and backends:
         job.error_message = f"[Bright Data failed: {bd_error}]"
 
+    # If no backends started at all, mark job as failed
+    if not backends:
+        job.status = "failed"
+        job.error_message = bd_error or "No scraping backend could start"
+        job.completed_at = datetime.utcnow()
+
     job.scraper_backend = "+".join(backends) if backends else None
     await db.commit()
     await db.refresh(job)

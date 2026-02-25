@@ -80,10 +80,14 @@ def _extract_slug(linkedin_url: str) -> str:
 async def _trigger_batch(
     client: httpx.AsyncClient,
     batch: list[dict],
-) -> str:
-    """Trigger one Bright Data company batch and return the snapshot_id."""
+) -> tuple[str | None, str | None]:
+    """Trigger one Bright Data company batch.
+
+    Returns (snapshot_id, None) on success or (None, error_message) on failure.
+    Never raises — caller handles the error.
+    """
     payload_preview = json.dumps(batch)[:500]
-    logger.info(f"BD trigger: sending {len(batch)} items, payload={payload_preview}")
+    logger.info(f"BD trigger v2: sending {len(batch)} items, payload={payload_preview}")
 
     params = {
         "dataset_id": DATASET_ID,
@@ -92,21 +96,34 @@ async def _trigger_batch(
         "limit_per_input": POSTS_PER_ACCOUNT,
     }
 
-    response = await client.post(
-        f"{BASE_URL}/trigger",
-        headers=_headers(),
-        params=params,
-        json=batch,
-    )
+    try:
+        response = await client.post(
+            f"{BASE_URL}/trigger",
+            headers=_headers(),
+            params=params,
+            json=batch,
+        )
+    except Exception as e:
+        msg = f"[BD v2] HTTP error: {e}"
+        logger.error(msg)
+        return None, msg
 
     body = response.text[:500]
-    logger.info(f"BD trigger: status={response.status_code}, url={response.url}, response={body}")
+    logger.info(f"BD trigger v2: status={response.status_code}, url={response.url}, body={body}")
 
     if response.status_code >= 400:
-        raise RuntimeError(
-            f"Bright Data {response.status_code}: {body}"
-        )
-    return response.json()["snapshot_id"]
+        msg = f"[BD v2] {response.status_code}: {body}"
+        logger.error(msg)
+        return None, msg
+
+    try:
+        snapshot_id = response.json()["snapshot_id"]
+    except Exception as e:
+        msg = f"[BD v2] No snapshot_id in response: {body} ({e})"
+        logger.error(msg)
+        return None, msg
+
+    return snapshot_id, None
 
 
 async def start_scrape(db: AsyncSession, job: ScrapeJob, company_accounts: list[WatchedAccount] | None = None) -> None:
@@ -117,42 +134,38 @@ async def start_scrape(db: AsyncSession, job: ScrapeJob, company_accounts: list[
     """
     job.status = "running"
 
-    try:
-        if company_accounts is None:
-            result = await db.execute(
-                select(WatchedAccount).where(
-                    WatchedAccount.sector == job.sector,
-                    WatchedAccount.type == "company",
-                )
+    if company_accounts is None:
+        result = await db.execute(
+            select(WatchedAccount).where(
+                WatchedAccount.sector == job.sector,
+                WatchedAccount.type == "company",
             )
-            company_accounts = list(result.scalars().all())
+        )
+        company_accounts = list(result.scalars().all())
 
-        if not company_accounts:
-            job.status = "failed"
-            job.error_message = f"No company accounts found for sector: {job.sector}"
-            job.completed_at = datetime.utcnow()
-            await db.commit()
-            return
+    if not company_accounts:
+        job.status = "failed"
+        job.error_message = f"No company accounts found for sector: {job.sector}"
+        job.completed_at = datetime.utcnow()
+        await db.commit()
+        return
 
-        urls = [_normalize_url(a.linkedin_url) for a in company_accounts]
+    urls = [_normalize_url(a.linkedin_url) for a in company_accounts]
+    batch = [{"url": u} for u in urls]
 
-        # BD API rejects content_type in input items — url only.
-        batch = [{"url": u} for u in urls]
+    async with httpx.AsyncClient(timeout=30) as client:
+        snapshot_id, error = await _trigger_batch(client, batch)
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            snapshot_id = await _trigger_batch(client, batch)
-
+    if error:
+        job.status = "failed"
+        job.error_message = error
+        job.completed_at = datetime.utcnow()
+    else:
         job.brightdata_snapshot_id = json.dumps({"company": snapshot_id})
-
         logger.info(
             f"Bright Data snapshot triggered for sector '{job.sector}': {snapshot_id} "
             f"({len(company_accounts)} company accounts)"
         )
-
-    except Exception as e:
-        job.status = "failed"
-        job.error_message = str(e)[:1000]
-        job.completed_at = datetime.utcnow()
 
     await db.commit()
 
