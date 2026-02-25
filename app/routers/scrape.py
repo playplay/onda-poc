@@ -71,6 +71,7 @@ async def trigger_scrape(
 
     # Company scrape: Bright Data (primary) or Apify fallback
     if company_accounts:
+        logger.info(f"API_BRIGHT_DATA configured: {bool(settings.API_BRIGHT_DATA)}")
         if settings.API_BRIGHT_DATA:
             from app.services.brightdata_scraper import start_scrape as bd_start
             await bd_start(db, job, company_accounts)
