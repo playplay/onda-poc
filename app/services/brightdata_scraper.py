@@ -128,9 +128,9 @@ async def start_scrape(db: AsyncSession, job: ScrapeJob, company_accounts: list[
 
         urls = [_normalize_url(a.linkedin_url) for a in company_accounts]
 
-        # BD API rejects content_type field entirely (as of Feb 2026).
-        # Input items must be {"url": "..."} only.
-        batch = [{"url": u} for u in urls]
+        # BD API requires content_type in input items.
+        # Empty string means "all content types".
+        batch = [{"url": u, "content_type": ""} for u in urls]
 
         async with httpx.AsyncClient(timeout=30) as client:
             snapshot_id = await _trigger_batch(client, batch)
