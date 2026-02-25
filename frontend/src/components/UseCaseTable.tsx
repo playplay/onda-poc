@@ -1,5 +1,14 @@
 import { FAMILY_LABELS, type UseCasePivotRow } from "../types";
 
+const FORMAT_HEADER_COLORS: Record<string, string> = {
+  video:    "text-purple-700",
+  carousel: "text-blue-700",
+  image:    "text-orange-700",
+  images:   "text-orange-700",
+  gif:      "text-orange-800",
+  text:     "text-gray-500",
+};
+
 interface Props {
   rows: UseCasePivotRow[];
   formatFamilies: string[];
@@ -47,7 +56,7 @@ export default function UseCaseTable({ rows, formatFamilies, status, onCellClick
             {formatFamilies.map((f) => (
               <th
                 key={f}
-                className="text-center py-2 px-3 font-medium text-gray-900"
+                className={`text-center py-2 px-3 font-medium ${FORMAT_HEADER_COLORS[f] || "text-gray-900"}`}
               >
                 {FAMILY_LABELS[f] || f}
               </th>

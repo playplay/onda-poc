@@ -200,66 +200,83 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
 
   return (
     <div className="space-y-4">
-      {/* Use Cases dropdown — standalone row */}
-      <div className="relative inline-block" ref={useCaseDropdownRef}>
+      {/* Top row: Use Cases dropdown + Reset filters */}
+      <div className="flex items-center gap-3">
+        <div className="relative inline-block" ref={useCaseDropdownRef}>
+          <button
+            onClick={() => hasUseCases && setUseCaseDropdownOpen(!useCaseDropdownOpen)}
+            className={`px-4 py-2 text-sm rounded-lg border shadow-sm transition-colors inline-flex items-center gap-2 ${
+              !hasUseCases
+                ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
+                : filterUseCases.size > 0
+                  ? "bg-indigo-50 text-indigo-700 border-indigo-300 shadow-indigo-100"
+                  : "bg-white text-gray-700 border-gray-200 hover:border-gray-400 hover:shadow-md"
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
+            </svg>
+            Use Cases{filterUseCases.size > 0 ? ` (${filterUseCases.size})` : ""}
+            <svg className={`w-4 h-4 transition-transform ${useCaseDropdownOpen ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+            </svg>
+          </button>
+          {useCaseDropdownOpen && (
+            <div className="absolute top-full left-0 mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-80 max-h-72 overflow-y-auto">
+              {Array.from(useCaseCounts.entries())
+                .sort((a, b) => b[1] - a[1])
+                .map(([uc, count]) => (
+                  <label
+                    key={uc}
+                    className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={filterUseCases.has(uc)}
+                      onChange={() => {
+                        setFilterUseCases((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(uc)) next.delete(uc);
+                          else next.add(uc);
+                          return next;
+                        });
+                      }}
+                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span className="truncate flex-1 capitalize">{uc}</span>
+                    <span className="text-gray-400 shrink-0 text-xs">{count}</span>
+                  </label>
+                ))}
+              {filterUseCases.size > 0 && (
+                <button
+                  onClick={() => setFilterUseCases(new Set())}
+                  className="w-full text-left px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 border-t border-gray-100"
+                >
+                  Clear use cases
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Reset filters — always visible, right-aligned */}
         <button
-          onClick={() => hasUseCases && setUseCaseDropdownOpen(!useCaseDropdownOpen)}
-          className={`px-4 py-2 text-sm rounded-lg border shadow-sm transition-colors inline-flex items-center gap-2 ${
-            !hasUseCases
-              ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
-              : filterUseCases.size > 0
-                ? "bg-indigo-50 text-indigo-700 border-indigo-300 shadow-indigo-100"
-                : "bg-white text-gray-700 border-gray-200 hover:border-gray-400 hover:shadow-md"
+          onClick={hasActiveFilters ? resetAllFilters : undefined}
+          className={`ml-auto text-xs transition-colors inline-flex items-center gap-1 ${
+            hasActiveFilters
+              ? "text-gray-500 hover:text-gray-700 cursor-pointer"
+              : "text-gray-300 cursor-default"
           }`}
         >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
-          Use Cases{filterUseCases.size > 0 ? ` (${filterUseCases.size})` : ""}
-          <svg className={`w-4 h-4 transition-transform ${useCaseDropdownOpen ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-          </svg>
+          Reset filters
         </button>
-        {useCaseDropdownOpen && (
-          <div className="absolute top-full left-0 mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-80 max-h-72 overflow-y-auto">
-            {Array.from(useCaseCounts.entries())
-              .sort((a, b) => b[1] - a[1])
-              .map(([uc, count]) => (
-                <label
-                  key={uc}
-                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm"
-                >
-                  <input
-                    type="checkbox"
-                    checked={filterUseCases.has(uc)}
-                    onChange={() => {
-                      setFilterUseCases((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(uc)) next.delete(uc);
-                        else next.add(uc);
-                        return next;
-                      });
-                    }}
-                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <span className="truncate flex-1 capitalize">{uc}</span>
-                  <span className="text-gray-400 shrink-0 text-xs">{count}</span>
-                </label>
-              ))}
-            {filterUseCases.size > 0 && (
-              <button
-                onClick={() => setFilterUseCases(new Set())}
-                className="w-full text-left px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 border-t border-gray-100"
-              >
-                Clear use cases
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
-      {/* Format / type filters */}
+      {/* Category / format filters */}
       <div className="flex flex-wrap items-center gap-2">
         {hasAccountTypes && (
           <>
@@ -320,19 +337,6 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
             </button>
           );
         })}
-
-        {/* Reset filters — right-aligned */}
-        {hasActiveFilters && (
-          <button
-            onClick={resetAllFilters}
-            className="ml-auto px-3 py-1 text-xs rounded-full border border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors inline-flex items-center gap-1"
-          >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-            Reset filters
-          </button>
-        )}
       </div>
 
       {/* Grid */}
