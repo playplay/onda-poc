@@ -128,26 +128,12 @@ async def start_scrape(db: AsyncSession, job: ScrapeJob, company_accounts: list[
 
         urls = [_normalize_url(a.linkedin_url) for a in company_accounts]
 
-        # BD API has inconsistent validation: sometimes rejects content_type,
-        # sometimes requires it. Try both variants on failure.
-        batch_variants = [
-            [{"url": u} for u in urls],
-            [{"url": u, "content_type": ""} for u in urls],
-        ]
+        # BD API rejects content_type field entirely (as of Feb 2026).
+        # Input items must be {"url": "..."} only.
+        batch = [{"url": u} for u in urls]
 
-        last_err: Exception | None = None
         async with httpx.AsyncClient(timeout=30) as client:
-            for i, batch in enumerate(batch_variants):
-                try:
-                    snapshot_id = await _trigger_batch(client, batch)
-                    last_err = None
-                    break
-                except Exception as e:
-                    last_err = e
-                    logger.warning(f"Bright Data trigger variant {i+1}/{len(batch_variants)} failed: {e}")
-                    await asyncio.sleep(1)
-            if last_err:
-                raise last_err
+            snapshot_id = await _trigger_batch(client, batch)
 
         job.brightdata_snapshot_id = json.dumps({"company": snapshot_id})
 
