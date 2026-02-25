@@ -52,7 +52,7 @@ export default function UseCaseTable({ rows, formatFamilies, status, onCellClick
                 {FAMILY_LABELS[f] || f}
               </th>
             ))}
-            <th className="text-center py-2 px-3 font-medium text-gray-900">
+            <th className="text-center py-2 px-3 font-medium text-gray-900 bg-gray-50">
               Total
             </th>
             <th className="text-center py-2 pl-3 font-medium text-gray-900">
@@ -86,8 +86,8 @@ export default function UseCaseTable({ rows, formatFamilies, status, onCellClick
                 );
               })}
               <td
-                className={`text-center py-2 px-3 font-medium ${
-                  onCellClick ? "text-indigo-600 cursor-pointer hover:bg-indigo-50 rounded transition-colors" : "text-gray-900"
+                className={`text-center py-2 px-3 font-medium bg-gray-50 ${
+                  onCellClick ? "text-indigo-600 cursor-pointer hover:bg-indigo-100 rounded transition-colors" : "text-gray-900"
                 }`}
                 onClick={onCellClick ? () => onCellClick(row.use_case, null) : undefined}
               >
@@ -111,7 +111,7 @@ export default function UseCaseTable({ rows, formatFamilies, status, onCellClick
           ))}
         </tbody>
         <tfoot>
-          <tr className="border-t-2 border-gray-300">
+          <tr className="border-t-2 border-gray-300 bg-gray-100">
             <td className="py-2 pr-4 font-semibold text-gray-900">Total</td>
             {formatFamilies.map((f) => {
               const count = totals[f];
@@ -129,7 +129,7 @@ export default function UseCaseTable({ rows, formatFamilies, status, onCellClick
                 </td>
               );
             })}
-            <td className="text-center py-2 px-3 font-semibold text-gray-900">
+            <td className="text-center py-2 px-3 font-semibold text-gray-900 bg-gray-200">
               {grandTotal}
             </td>
             <td />
