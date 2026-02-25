@@ -4,10 +4,16 @@ interface Props {
   rows: UseCasePivotRow[];
   formatFamilies: string[];
   status: "ready" | "classifying" | "empty";
-  onCellClick?: (useCase: string, format: string | null) => void;
+  onCellClick?: (useCase: string | null, format: string | null) => void;
 }
 
 export default function UseCaseTable({ rows, formatFamilies, status, onCellClick }: Props) {
+  // Compute totals per format
+  const totals = formatFamilies.reduce<Record<string, number>>((acc, f) => {
+    acc[f] = rows.reduce((sum, row) => sum + (row.counts_by_format[f] || 0), 0);
+    return acc;
+  }, {});
+  const grandTotal = rows.reduce((sum, row) => sum + row.total, 0);
   if (status === "classifying") {
     return (
       <div className="border border-gray-200 rounded-lg p-8 text-center">
@@ -104,6 +110,31 @@ export default function UseCaseTable({ rows, formatFamilies, status, onCellClick
             </tr>
           ))}
         </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-gray-300">
+            <td className="py-2 pr-4 font-semibold text-gray-900">Total</td>
+            {formatFamilies.map((f) => {
+              const count = totals[f];
+              return (
+                <td
+                  key={f}
+                  className={`text-center py-2 px-3 font-semibold ${
+                    count
+                      ? "text-indigo-600 cursor-pointer hover:bg-indigo-50 rounded transition-colors"
+                      : "text-gray-300"
+                  }`}
+                  onClick={count && onCellClick ? () => onCellClick(null, f) : undefined}
+                >
+                  {count || "-"}
+                </td>
+              );
+            })}
+            <td className="text-center py-2 px-3 font-semibold text-gray-900">
+              {grandTotal}
+            </td>
+            <td />
+          </tr>
+        </tfoot>
       </table>
     </div>
   );

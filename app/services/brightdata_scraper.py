@@ -86,9 +86,6 @@ async def _trigger_batch(
     Returns (snapshot_id, None) on success or (None, error_message) on failure.
     Never raises — caller handles the error.
     """
-    payload_preview = json.dumps(batch)[:500]
-    logger.info(f"BD trigger v2: sending {len(batch)} items, payload={payload_preview}")
-
     params = {
         "dataset_id": DATASET_ID,
         "type": "discover_new",
@@ -104,22 +101,19 @@ async def _trigger_batch(
             json=batch,
         )
     except Exception as e:
-        msg = f"[BD v2] HTTP error: {e}"
+        msg = f"Bright Data HTTP error: {e}"
         logger.error(msg)
         return None, msg
 
-    body = response.text[:500]
-    logger.info(f"BD trigger v2: status={response.status_code}, url={response.url}, body={body}")
-
     if response.status_code >= 400:
-        msg = f"[BD v2] {response.status_code}: {body}"
+        msg = f"Bright Data {response.status_code}: {response.text[:500]}"
         logger.error(msg)
         return None, msg
 
     try:
         snapshot_id = response.json()["snapshot_id"]
     except Exception as e:
-        msg = f"[BD v2] No snapshot_id in response: {body} ({e})"
+        msg = f"Bright Data: no snapshot_id in response ({e})"
         logger.error(msg)
         return None, msg
 

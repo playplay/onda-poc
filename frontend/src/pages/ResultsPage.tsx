@@ -277,8 +277,8 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
   );
 
   const handleUseCaseCellClick = useCallback(
-    (useCase: string, format: string | null) => {
-      setGalleryFilterUseCases(new Set([useCase]));
+    (useCase: string | null, format: string | null) => {
+      setGalleryFilterUseCases(useCase ? new Set([useCase]) : new Set());
       setGalleryFilterFormat(format);
       setTab("gallery");
     },
@@ -353,7 +353,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
                   : "border-transparent text-gray-400 hover:text-gray-600"
               }`}
             >
-              Gallery
+              Posts
             </button>
             <button
               onClick={() => setTab("usecases")}
