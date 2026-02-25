@@ -79,6 +79,7 @@ export default function App() {
   const [jobsLoaded, setJobsLoaded] = useState(false);
   const [showNewSearch, setShowNewSearch] = useState(false);
   const [deleteJobId, setDeleteJobId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -159,10 +160,13 @@ export default function App() {
   };
 
   const handleDeleteJob = async () => {
-    if (!deleteJobId) return;
-    const wasViewing = pathname.startsWith(`/results/${deleteJobId}`);
+    if (!deleteJobId || deleting) return;
+    setDeleting(true);
+    const idToDelete = deleteJobId;
+    const wasViewing = pathname.startsWith(`/results/${idToDelete}`);
     try {
-      await deleteScrapeJob(deleteJobId);
+      await deleteScrapeJob(idToDelete);
+      setDeleteJobId(null);
       const updatedJobs = await listScrapeJobs(10);
       setJobs(updatedJobs);
       if (wasViewing) {
@@ -171,8 +175,11 @@ export default function App() {
       }
     } catch (err) {
       console.error("Failed to delete job:", err);
+      alert("Failed to delete this research. Please try again.");
+      setDeleteJobId(null);
+    } finally {
+      setDeleting(false);
     }
-    setDeleteJobId(null);
   };
 
   const latestJobId = jobs.length > 0 ? jobs[0].id : null;
@@ -297,9 +304,10 @@ export default function App() {
               </button>
               <button
                 onClick={handleDeleteJob}
-                className="px-3 py-1.5 text-sm text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors"
+                disabled={deleting}
+                className="px-3 py-1.5 text-sm text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors disabled:opacity-50"
               >
-                Yes
+                {deleting ? "Deleting..." : "Yes"}
               </button>
             </div>
           </div>

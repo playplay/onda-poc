@@ -23,11 +23,14 @@ class PostOut(BaseModel):
     clicks: int
     impressions: int
     engagement_score: float
+    author_follower_count: int | None
+    engagement_rate: float | None
     post_url: str | None
     video_url: str | None
     image_url: str | None
     duration_seconds: float | None
     publication_date: datetime | None
+    claude_use_case: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

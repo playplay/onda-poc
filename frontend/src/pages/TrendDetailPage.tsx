@@ -90,7 +90,10 @@ export default function TrendDetailPage() {
   );
 
   const avgEng = trendInfo
-    ? getEngagementLabel(trendInfo.avg_engagement_score, allScores)
+    ? getEngagementLabel(
+        { engagement_rate: null, author_follower_count: null, engagement_score: trendInfo.avg_engagement_score },
+        allScores,
+      )
     : null;
 
   if (loading) {

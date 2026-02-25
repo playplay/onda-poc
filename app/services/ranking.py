@@ -15,6 +15,29 @@ def compute_engagement_score(
     return float(reactions + comments * 3)
 
 
+def compute_engagement_rate(
+    reactions: int, comments: int, follower_count: int | None
+) -> float | None:
+    """(reactions + comments) / followers * 100. None if no follower count."""
+    if not follower_count or follower_count <= 0:
+        return None
+    return (reactions + comments) / follower_count * 100
+
+
+def get_engagement_level(
+    engagement_rate: float | None, follower_count: int | None
+) -> str:
+    """Return 'viral', 'engaging', or 'neutral' based on rate and account size."""
+    if engagement_rate is None:
+        return "neutral"
+    if follower_count and follower_count >= 100_000:
+        return "viral" if engagement_rate > 2 else ("engaging" if engagement_rate >= 0.5 else "neutral")
+    elif follower_count and follower_count >= 10_000:
+        return "viral" if engagement_rate > 3 else ("engaging" if engagement_rate >= 1 else "neutral")
+    else:
+        return "viral" if engagement_rate > 5 else ("engaging" if engagement_rate >= 2 else "neutral")
+
+
 async def get_top_trends(
     db: AsyncSession, scrape_job_id: uuid.UUID, limit: int = 10
 ) -> list[RankedTrendOut]:

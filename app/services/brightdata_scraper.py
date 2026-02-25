@@ -26,7 +26,7 @@ from app.models.scrape_job import ScrapeJob
 from app.models.watched_account import WatchedAccount
 from app.services.classifier import classify_format_family, detect_image_gif
 from app.services.date_utils import parse_date
-from app.services.ranking import compute_engagement_score
+from app.services.ranking import compute_engagement_score, compute_engagement_rate
 
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,7 @@ OUTPUT_FIELDS = "|".join([
     "num_likes", "num_comments", "images", "videos",
     "video_duration", "video_thumbnail", "post_type",
     "document_cover_image", "document_page_count", "hashtags",
+    "user_followers",
 ])
 
 
@@ -334,6 +335,11 @@ async def _item_to_post(item: dict, job: ScrapeJob) -> Post:
 
     engagement = compute_engagement_score(reactions, comments_count, shares, 0, 0)
 
+    # Follower count & engagement rate
+    followers_raw = item.get("user_followers")
+    author_follower_count = int(followers_raw) if followers_raw else None
+    engagement_rate = compute_engagement_rate(reactions, comments_count, author_follower_count)
+
     post_text = item.get("post_text") or ""
 
     return Post(
@@ -352,6 +358,8 @@ async def _item_to_post(item: dict, job: ScrapeJob) -> Post:
         clicks=0,
         impressions=0,
         engagement_score=engagement,
+        author_follower_count=author_follower_count,
+        engagement_rate=engagement_rate,
         post_url=item.get("url"),
         video_url=video_url,
         image_url=image_url,

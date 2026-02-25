@@ -58,7 +58,10 @@ export default function TrendRanking({
           .filter((p) => p.video_url)
           .map((p) => p.id);
         const allPostIds = trend.top_posts.map((p) => p.id);
-        const avgEng = getEngagementLabel(trend.avg_engagement_score, scores);
+        const avgEng = getEngagementLabel(
+          { engagement_rate: null, author_follower_count: null, engagement_score: trend.avg_engagement_score },
+          scores,
+        );
         const status = analysisStatus[trend.rank] ?? "idle";
 
         const relevantAnalyses = allPostIds

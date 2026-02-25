@@ -2,10 +2,11 @@ import jwt as pyjwt
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine, Base
-from app.routers import scrape, posts, analysis, trend_summary, accounts, auth
+from app.routers import scrape, posts, analysis, trend_summary, accounts, auth, use_cases
 
 app = FastAPI(
     title="Onda API",
@@ -37,6 +38,9 @@ async def ensure_tables(request: Request, call_next):
     if not _tables_created:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(text(
+                "ALTER TABLE posts ADD COLUMN IF NOT EXISTS claude_use_case VARCHAR(200)"
+            ))
         _tables_created = True
     return await call_next(request)
 
@@ -54,6 +58,7 @@ app.include_router(posts.router, prefix="/api", tags=["posts"])
 app.include_router(analysis.router, prefix="/api", tags=["analysis"])
 app.include_router(trend_summary.router, prefix="/api", tags=["trends"])
 app.include_router(accounts.router, prefix="/api", tags=["accounts"])
+app.include_router(use_cases.router, prefix="/api", tags=["use-cases"])
 
 
 @app.get("/health")

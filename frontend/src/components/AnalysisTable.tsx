@@ -102,7 +102,7 @@ export default function AnalysisTable({ rows, loading }: Props) {
         <tbody className="divide-y divide-gray-100">
           {rows.map((row) => {
             const { post, analysis } = row;
-            const eng = getEngagementLabel(post.engagement_score, allScores);
+            const eng = getEngagementLabel(post, allScores);
             const a = analysis;
             const pending = !a && loading;
 

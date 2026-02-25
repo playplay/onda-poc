@@ -11,6 +11,8 @@ import type {
   WatchedAccount,
   WatchedAccountCreate,
   WatchedAccountUpdate,
+  UseCasePivotResponse,
+  UseCaseClassifyResult,
 } from "../types";
 
 const api = axios.create({
@@ -170,6 +172,28 @@ export async function updateAccount(id: string, body: WatchedAccountUpdate): Pro
 
 export async function deleteAccount(id: string): Promise<void> {
   await api.delete(`/accounts/${id}`);
+}
+
+// --- Use Cases ---
+
+export async function classifyUseCases(
+  jobId: string,
+  force = false
+): Promise<UseCaseClassifyResult> {
+  const { data } = await api.post<UseCaseClassifyResult>("/use-cases/classify", {
+    scrape_job_id: jobId,
+    force,
+  });
+  return data;
+}
+
+export async function getUseCasePivot(
+  jobId: string
+): Promise<UseCasePivotResponse> {
+  const { data } = await api.get<UseCasePivotResponse>("/use-cases/pivot", {
+    params: { scrape_job_id: jobId },
+  });
+  return data;
 }
 
 export function streamTrendSummary(

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, Text, Boolean
+from sqlalchemy import String, Integer, DateTime, Text, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,4 +20,5 @@ class WatchedAccount(Base):
     sector: Mapped[str] = mapped_column(String(100), nullable=False)
     company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     is_playplay_client: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    follower_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

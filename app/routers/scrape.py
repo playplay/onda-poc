@@ -233,6 +233,9 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
             )
             all_posts.extend(profile_posts)
 
+        # Update follower_count on watched accounts from the most recent post data
+        await _update_account_followers(db, job.sector, all_posts)
+
         job.total_posts = len(all_posts)
         job.status = "completed"
         job.completed_at = datetime.utcnow()
@@ -243,3 +246,32 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
         job.completed_at = datetime.utcnow()
 
     await db.commit()
+
+
+async def _update_account_followers(
+    db: AsyncSession, sector: str, posts: list[Post]
+) -> None:
+    """Update follower_count on watched accounts from scraped post data."""
+    result = await db.execute(
+        select(WatchedAccount).where(WatchedAccount.sector == sector)
+    )
+    accounts = result.scalars().all()
+    if not accounts:
+        return
+
+    # Build slug → account mapping
+    slug_to_account: dict[str, WatchedAccount] = {}
+    for a in accounts:
+        match = re.search(r"/(in|company)/([^/]+)", a.linkedin_url)
+        if match:
+            slug_to_account[match.group(2).lower()] = a
+
+    # Update from post author_follower_count (take the max per account)
+    for post in posts:
+        if not post.author_follower_count or not post.author_name:
+            continue
+        slug = post.author_name.lower()
+        account = slug_to_account.get(slug)
+        if account:
+            if not account.follower_count or post.author_follower_count > account.follower_count:
+                account.follower_count = post.author_follower_count

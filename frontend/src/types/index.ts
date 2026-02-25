@@ -62,11 +62,14 @@ export interface Post {
   clicks: number;
   impressions: number;
   engagement_score: number;
+  author_follower_count: number | null;
+  engagement_rate: number | null;
   post_url: string | null;
   video_url: string | null;
   image_url: string | null;
   duration_seconds: number | null;
   publication_date: string | null;
+  claude_use_case: string | null;
   created_at: string;
 }
 
@@ -231,3 +234,25 @@ export const FAMILY_LABELS: Record<string, string> = {
   text: "Text Only",
   unknown: "Unknown",
 };
+
+// --- Use Case types ---
+
+export interface UseCasePivotRow {
+  use_case: string;
+  counts_by_format: Record<string, number>;
+  total: number;
+  best_post_url: string | null;
+  best_post_engagement: number;
+}
+
+export interface UseCasePivotResponse {
+  rows: UseCasePivotRow[];
+  format_families: string[];
+  status: "ready" | "classifying" | "empty";
+}
+
+export interface UseCaseClassifyResult {
+  classified: number;
+  total: number;
+  already_classified: number;
+}

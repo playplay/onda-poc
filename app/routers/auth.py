@@ -29,7 +29,9 @@ async def login(body: LoginRequest, request: Request):
     }
     token = jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
 
-    secure = settings.is_serverless
+    # Only set Secure flag on actual HTTPS deployments (Vercel)
+    # POSTGRES_URL alone doesn't mean HTTPS — check for Vercel env
+    secure = settings.is_serverless and bool(settings.VERCEL_OIDC_TOKEN)
     response = JSONResponse(content={"email": body.email})
     response.set_cookie(
         key="onda_token",

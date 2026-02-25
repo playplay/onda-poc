@@ -1,11 +1,15 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import type { Post } from "../types";
+import { getEngagementLabel } from "../utils/engagement";
 
 interface Props {
   posts: Post[];
   playplaySlugs?: Set<string>;
   accountNames?: Map<string, string>;
   accountTypes?: Map<string, "company" | "person">;
+  externalFilterFormat?: string | null;
+  externalFilterUseCases?: Set<string>;
+  onFiltersApplied?: () => void;
 }
 
 const FORMAT_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -78,10 +82,29 @@ function setHas(set: Set<string> | undefined, key: string): boolean {
   return set.has(key) || set.has(key.toLowerCase());
 }
 
-export default function PostGallery({ posts, playplaySlugs, accountNames, accountTypes }: Props) {
+export default function PostGallery({ posts, playplaySlugs, accountNames, accountTypes, externalFilterFormat, externalFilterUseCases, onFiltersApplied }: Props) {
   const [filterFormat, setFilterFormat] = useState<string | null>(null);
   const [filterPlayPlay, setFilterPlayPlay] = useState(false);
   const [filterAccountType, setFilterAccountType] = useState<"company" | "person" | null>(null);
+  const [filterUseCases, setFilterUseCases] = useState<Set<string>>(new Set());
+  const [useCaseDropdownOpen, setUseCaseDropdownOpen] = useState(false);
+  const useCaseDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Apply external filters from UseCaseTable navigation
+  useEffect(() => {
+    if (externalFilterFormat !== undefined && externalFilterFormat !== null) {
+      setFilterFormat(externalFilterFormat);
+    }
+    if (externalFilterUseCases && externalFilterUseCases.size > 0) {
+      setFilterUseCases(externalFilterUseCases);
+    }
+    if (
+      (externalFilterFormat !== undefined && externalFilterFormat !== null) ||
+      (externalFilterUseCases && externalFilterUseCases.size > 0)
+    ) {
+      onFiltersApplied?.();
+    }
+  }, [externalFilterFormat, externalFilterUseCases, onFiltersApplied]);
 
   const formatCounts = useMemo(() => {
     const map = new Map<string, number>();
@@ -116,6 +139,35 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
 
   const hasAccountTypes = accountTypeCounts.company > 0 || accountTypeCounts.person > 0;
 
+  const useCaseCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of posts) {
+      if (p.claude_use_case) {
+        map.set(p.claude_use_case, (map.get(p.claude_use_case) || 0) + 1);
+      }
+    }
+    return map;
+  }, [posts]);
+
+  const hasUseCases = useCaseCounts.size > 0;
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    if (!useCaseDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (useCaseDropdownRef.current && !useCaseDropdownRef.current.contains(e.target as Node)) {
+        setUseCaseDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [useCaseDropdownOpen]);
+
+  const allScores = useMemo(
+    () => posts.map((p) => p.engagement_score),
+    [posts]
+  );
+
   const filtered = useMemo(() => {
     let result = [...posts].sort((a, b) => computeEngagement(b) - computeEngagement(a));
     if (filterFormat) {
@@ -127,27 +179,88 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
     if (filterAccountType && accountTypes) {
       result = result.filter((p) => mapLookup(accountTypes, p.author_name || "") === filterAccountType);
     }
+    if (filterUseCases.size > 0) {
+      result = result.filter((p) => p.claude_use_case && filterUseCases.has(p.claude_use_case));
+    }
     return result;
-  }, [posts, filterFormat, filterPlayPlay, filterAccountType, playplaySlugs, accountTypes]);
+  }, [posts, filterFormat, filterPlayPlay, filterAccountType, filterUseCases, playplaySlugs, accountTypes]);
 
   if (posts.length === 0) {
     return <p className="text-gray-400 text-center py-8 text-sm">No posts found.</p>;
   }
 
+  const hasActiveFilters = filterFormat !== null || filterAccountType !== null || filterPlayPlay || filterUseCases.size > 0;
+
+  const resetAllFilters = () => {
+    setFilterFormat(null);
+    setFilterAccountType(null);
+    setFilterPlayPlay(false);
+    setFilterUseCases(new Set());
+  };
+
   return (
     <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Use Cases dropdown — standalone row */}
+      <div className="relative inline-block" ref={useCaseDropdownRef}>
         <button
-          onClick={() => { setFilterFormat(null); setFilterAccountType(null); }}
-          className={`px-3 py-1 text-xs rounded-full border transition-colors ${
-            filterFormat === null && filterAccountType === null
-              ? "bg-violet-600 text-white border-violet-600"
-              : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
+          onClick={() => hasUseCases && setUseCaseDropdownOpen(!useCaseDropdownOpen)}
+          className={`px-4 py-2 text-sm rounded-lg border shadow-sm transition-colors inline-flex items-center gap-2 ${
+            !hasUseCases
+              ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
+              : filterUseCases.size > 0
+                ? "bg-indigo-50 text-indigo-700 border-indigo-300 shadow-indigo-100"
+                : "bg-white text-gray-700 border-gray-200 hover:border-gray-400 hover:shadow-md"
           }`}
         >
-          All ({posts.length})
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
+          </svg>
+          Use Cases{filterUseCases.size > 0 ? ` (${filterUseCases.size})` : ""}
+          <svg className={`w-4 h-4 transition-transform ${useCaseDropdownOpen ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+          </svg>
         </button>
+        {useCaseDropdownOpen && (
+          <div className="absolute top-full left-0 mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-80 max-h-72 overflow-y-auto">
+            {Array.from(useCaseCounts.entries())
+              .sort((a, b) => b[1] - a[1])
+              .map(([uc, count]) => (
+                <label
+                  key={uc}
+                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={filterUseCases.has(uc)}
+                    onChange={() => {
+                      setFilterUseCases((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(uc)) next.delete(uc);
+                        else next.add(uc);
+                        return next;
+                      });
+                    }}
+                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span className="truncate flex-1 capitalize">{uc}</span>
+                  <span className="text-gray-400 shrink-0 text-xs">{count}</span>
+                </label>
+              ))}
+            {filterUseCases.size > 0 && (
+              <button
+                onClick={() => setFilterUseCases(new Set())}
+                className="w-full text-left px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 border-t border-gray-100"
+              >
+                Clear use cases
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Format / type filters */}
+      <div className="flex flex-wrap items-center gap-2">
         {hasAccountTypes && (
           <>
             <button
@@ -208,6 +321,18 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
           );
         })}
 
+        {/* Reset filters — right-aligned */}
+        {hasActiveFilters && (
+          <button
+            onClick={resetAllFilters}
+            className="ml-auto px-3 py-1 text-xs rounded-full border border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors inline-flex items-center gap-1"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            Reset filters
+          </button>
+        )}
       </div>
 
       {/* Grid */}
@@ -301,6 +426,25 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
                     </svg>
                     {post.comments}
                   </span>
+                  {(() => {
+                    const eng = getEngagementLabel(post, allScores);
+                    const dotColor = eng.label === "Viral"
+                      ? "bg-rose-800"
+                      : eng.label === "Engaging"
+                        ? "bg-blue-400"
+                        : "bg-gray-300";
+                    const textColor = eng.label === "Viral"
+                      ? "text-rose-800"
+                      : eng.label === "Engaging"
+                        ? "text-blue-400"
+                        : "text-gray-400";
+                    return (
+                      <span className={`flex items-center gap-1 ml-auto ${textColor}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
+                        {eng.label}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
             </a>

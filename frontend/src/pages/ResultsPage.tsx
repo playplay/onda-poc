@@ -9,16 +9,19 @@ import {
   getAnalysis,
   getAnalysesByJob,
   getAccounts,
+  getUseCasePivot,
+  classifyUseCases,
 } from "../api/client";
-import type { ScrapeJob, Post, RankedTrend, GeminiAnalysis } from "../types";
+import type { ScrapeJob, Post, RankedTrend, GeminiAnalysis, UseCasePivotResponse } from "../types";
 import PostGallery from "../components/PostGallery";
 import TrendRanking from "../components/TrendRanking";
+import UseCaseTable from "../components/UseCaseTable";
 import type { AnalysisStatus } from "../components/TrendRanking";
 
 // Module-level cache for completed job data — survives re-mounts
 const jobDataCache = new Map<
   string,
-  { posts: Post[]; trends: RankedTrend[]; analyses: GeminiAnalysis[] }
+  { posts: Post[]; trends: RankedTrend[]; analyses: GeminiAnalysis[]; useCasePivot?: UseCasePivotResponse }
 >();
 
 interface Props {
@@ -38,7 +41,12 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
 
   const [posts, setPosts] = useState<Post[]>([]);
   const [trends, setTrends] = useState<RankedTrend[]>([]);
-  const [tab, setTab] = useState<"trends" | "gallery">("gallery");
+  const [tab, setTab] = useState<"gallery" | "usecases" | "trends">("gallery");
+  const [useCasePivot, setUseCasePivot] = useState<UseCasePivotResponse | null>(null);
+
+  // Gallery filters set from UseCaseTable navigation
+  const [galleryFilterFormat, setGalleryFilterFormat] = useState<string | null>(null);
+  const [galleryFilterUseCases, setGalleryFilterUseCases] = useState<Set<string>>(new Set());
   const [playplaySlugs, setPlayplaySlugs] = useState<Set<string>>(new Set());
   const [accountNames, setAccountNames] = useState<Map<string, string>>(new Map());
   const [accountTypes, setAccountTypes] = useState<Map<string, "company" | "person">>(new Map());
@@ -77,10 +85,11 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
   // Load completed job data + restore existing analyses from DB
   const loadCompletedData = useCallback(
     async (id: string) => {
-      const [postsData, trendsData, existingAnalyses] = await Promise.all([
+      const [postsData, trendsData, existingAnalyses, pivotData] = await Promise.all([
         getPosts(id),
         getRanking(id),
         getAnalysesByJob(id),
+        getUseCasePivot(id),
       ]);
       // Deduplicate posts by post_url
       const seen = new Set<string>();
@@ -92,6 +101,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
       setPosts(uniquePosts);
       setTrends(trendsData);
       setAnalyses(existingAnalyses);
+      setUseCasePivot(pivotData);
       deriveAnalysisStatus(trendsData, existingAnalyses);
 
       // Populate cache
@@ -99,7 +109,31 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
         posts: uniquePosts,
         trends: trendsData,
         analyses: existingAnalyses,
+        useCasePivot: pivotData,
       });
+
+      // If no classifications yet, trigger in background
+      if (pivotData.status !== "ready" && uniquePosts.length > 0) {
+        classifyUseCases(id).then(async () => {
+          const [updated, refreshedPosts] = await Promise.all([
+            getUseCasePivot(id),
+            getPosts(id),
+          ]);
+          setUseCasePivot(updated);
+          // Refresh posts so claude_use_case is available for Gallery filter
+          const refreshSeen = new Set<string>();
+          const refreshedUnique = refreshedPosts.filter((p) => {
+            if (!p.post_url || refreshSeen.has(p.post_url)) return false;
+            refreshSeen.add(p.post_url);
+            return true;
+          });
+          setPosts(refreshedUnique);
+          if (jobDataCache.has(id)) {
+            const cached = jobDataCache.get(id)!;
+            jobDataCache.set(id, { ...cached, useCasePivot: updated, posts: refreshedUnique });
+          }
+        });
+      }
     },
     [deriveAnalysisStatus]
   );
@@ -111,11 +145,13 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
       setPosts(cached.posts);
       setTrends(cached.trends);
       setAnalyses(cached.analyses);
+      setUseCasePivot(cached.useCasePivot ?? null);
       deriveAnalysisStatus(cached.trends, cached.analyses);
     } else {
       setPosts([]);
       setTrends([]);
       setAnalyses([]);
+      setUseCasePivot(null);
       setAnalysisStatus({});
     }
   }, [jobId, deriveAnalysisStatus]);
@@ -240,6 +276,15 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
     [jobId, navigate]
   );
 
+  const handleUseCaseCellClick = useCallback(
+    (useCase: string, format: string | null) => {
+      setGalleryFilterUseCases(new Set([useCase]));
+      setGalleryFilterFormat(format);
+      setTab("gallery");
+    },
+    []
+  );
+
   if (!job) {
     return <p className="text-center text-gray-400 py-8">Loading...</p>;
   }
@@ -257,7 +302,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
           </p>
         </div>
         <span className="text-sm text-gray-400 shrink-0">
-          {new Date(job.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+          {new Date(job.created_at).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" })}
         </span>
       </div>
 
@@ -311,6 +356,16 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
               Gallery
             </button>
             <button
+              onClick={() => setTab("usecases")}
+              className={`px-1 py-2 text-sm font-medium border-b-2 transition-colors ${
+                tab === "usecases"
+                  ? "border-gray-900 text-gray-900"
+                  : "border-transparent text-gray-400 hover:text-gray-600"
+              }`}
+            >
+              Use Cases
+            </button>
+            <button
               onClick={() => setTab("trends")}
               className={`px-1 py-2 text-sm font-medium border-b-2 transition-colors ${
                 tab === "trends"
@@ -322,6 +377,14 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
             </button>
           </div>
 
+          {tab === "usecases" && (
+            <UseCaseTable
+              rows={useCasePivot?.rows ?? []}
+              formatFamilies={useCasePivot?.format_families ?? []}
+              status={useCasePivot?.status ?? "classifying"}
+              onCellClick={handleUseCaseCellClick}
+            />
+          )}
           {tab === "trends" && (
             <TrendRanking
               trends={trends}
@@ -332,7 +395,17 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
               onNavigateToTrend={handleNavigateToTrend}
             />
           )}
-          {tab === "gallery" && <PostGallery posts={posts} playplaySlugs={playplaySlugs} accountNames={accountNames} accountTypes={accountTypes} />}
+          {tab === "gallery" && (
+            <PostGallery
+              posts={posts}
+              playplaySlugs={playplaySlugs}
+              accountNames={accountNames}
+              accountTypes={accountTypes}
+              externalFilterFormat={galleryFilterFormat}
+              externalFilterUseCases={galleryFilterUseCases}
+              onFiltersApplied={() => { setGalleryFilterFormat(null); setGalleryFilterUseCases(new Set()); }}
+            />
+          )}
         </>
       )}
     </div>
