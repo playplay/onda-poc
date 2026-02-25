@@ -24,7 +24,7 @@ from app.config import settings
 from app.models.post import Post
 from app.models.scrape_job import ScrapeJob
 from app.models.watched_account import WatchedAccount
-from app.services.classifier import classify_format_family
+from app.services.classifier import classify_format_family, detect_image_gif
 from app.services.date_utils import parse_date
 from app.services.ranking import compute_engagement_score
 
@@ -288,7 +288,7 @@ async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Po
     # Map to Post models
     created_posts: list[Post] = []
     for item in top_items:
-        post = _item_to_post(item, job)
+        post = await _item_to_post(item, job)
         db.add(post)
         created_posts.append(post)
 
@@ -296,7 +296,7 @@ async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Po
 
 
 
-def _item_to_post(item: dict, job: ScrapeJob) -> Post:
+async def _item_to_post(item: dict, job: ScrapeJob) -> Post:
     """Map a Bright Data LinkedIn post item to a Post model."""
     reactions = int(item.get("num_likes", 0) or 0)
     comments_count = int(item.get("num_comments", 0) or 0)
@@ -316,12 +316,20 @@ def _item_to_post(item: dict, job: ScrapeJob) -> Post:
 
     content_type = "video" if has_video else ("image" if has_image else "text")
 
+    # Detect gif vs single image vs multiple images
+    image_count = len(images)
+    is_gif = False
+    if has_image and not has_video and not has_document and image_count == 1:
+        is_gif = await detect_image_gif(images[0])
+
     format_family = classify_format_family(
         content_type=content_type,
         duration_seconds=duration_seconds,
         has_video=has_video,
         has_image=has_image,
         has_document=has_document,
+        image_count=image_count,
+        is_gif=is_gif,
     )
 
     engagement = compute_engagement_score(reactions, comments_count, shares, 0, 0)

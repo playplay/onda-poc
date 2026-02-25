@@ -23,7 +23,7 @@ from app.config import settings
 from app.models.post import Post
 from app.models.scrape_job import ScrapeJob
 from app.models.watched_account import WatchedAccount
-from app.services.classifier import classify_format_family
+from app.services.classifier import classify_format_family, detect_image_gif
 from app.services.date_utils import parse_date
 from app.services.ranking import compute_engagement_score
 
@@ -164,14 +164,14 @@ async def fetch_and_process_profile_posts(
     # Map to Post models
     created_posts: list[Post] = []
     for item in top_items:
-        post = _item_to_post(item, job)
+        post = await _item_to_post(item, job)
         db.add(post)
         created_posts.append(post)
 
     return created_posts
 
 
-def _item_to_post(item: dict, job: ScrapeJob) -> Post:
+async def _item_to_post(item: dict, job: ScrapeJob) -> Post:
     """Map a harvestapi/linkedin-profile-posts item to a Post model."""
     author = item.get("author") or {}
     engagement = item.get("engagement") or {}
@@ -207,11 +207,21 @@ def _item_to_post(item: dict, job: ScrapeJob) -> Post:
     else:
         content_type = "text"
 
+    # Detect gif vs single image vs multiple images
+    image_count = len(post_images)
+    is_gif = False
+    if has_image and not has_video and not has_document and image_count == 1:
+        first_url = post_images[0].get("url") if post_images else None
+        if first_url:
+            is_gif = await detect_image_gif(first_url)
+
     format_family = classify_format_family(
         content_type=content_type,
         has_video=has_video,
         has_image=has_image,
         has_document=has_document,
+        image_count=image_count,
+        is_gif=is_gif,
     )
 
     engagement_score = compute_engagement_score(reactions, comments_count, shares, 0, 0)

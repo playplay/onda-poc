@@ -224,7 +224,10 @@ export const ANALYSIS_ENUM_OPTIONS: Record<AnalysisFilterKey, string[]> = {
 
 export const FAMILY_LABELS: Record<string, string> = {
   video: "Video",
-  static: "Static (Image/Doc)",
+  carousel: "Carousel",
+  image: "Image",
+  images: "Images",
+  gif: "GIF",
   text: "Text Only",
   unknown: "Unknown",
 };

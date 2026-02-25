@@ -9,9 +9,16 @@ Tier 2 (Gemini AI): Assigns format_variation — handled in gemini.py.
 Families:
 - video: All video content
 - carousel: Document / multi-page post
-- image: Single or multiple images (no document)
+- image: Single static image
+- images: Multiple static images (2+)
+- gif: Animated GIF image
 - text: Text-only post (no media)
 """
+
+import httpx
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Full format variation taxonomy for reference (used by Gemini analysis)
 FORMAT_TAXONOMY = {
@@ -71,6 +78,28 @@ FORMAT_TAXONOMY = {
         "content_cover",
         "conceptual_illustration",
     ],
+    "images": [
+        "verbatim",
+        "key_figures",
+        "corporate_meme",
+        "screenshot_comment",
+        "product_visual",
+        "focus_team_talent",
+        "ad",
+        "content_cover",
+        "conceptual_illustration",
+    ],
+    "gif": [
+        "verbatim",
+        "key_figures",
+        "corporate_meme",
+        "screenshot_comment",
+        "product_visual",
+        "focus_team_talent",
+        "ad",
+        "content_cover",
+        "conceptual_illustration",
+    ],
     "text": [],
 }
 
@@ -80,12 +109,25 @@ for family, variations in FORMAT_TAXONOMY.items():
     for variation in variations:
         VARIATION_TO_FAMILY[variation] = family
 
+async def detect_image_gif(url: str) -> bool:
+    """Check if an image URL points to a GIF via HEAD request on Content-Type."""
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.head(url, follow_redirects=True)
+            ct = resp.headers.get("content-type", "")
+            return "image/gif" in ct.lower()
+    except Exception:
+        return False
+
+
 def classify_format_family(
     content_type: str | None,
     duration_seconds: float | None = None,
     has_video: bool = False,
     has_image: bool = False,
     has_document: bool = False,
+    image_count: int = 0,
+    is_gif: bool = False,
 ) -> str:
     """Classify a post into a format family based on metadata."""
     ct = (content_type or "").lower()
@@ -98,8 +140,12 @@ def classify_format_family(
     if has_document or any(kw in ct for kw in ("carousel", "document", "slide")):
         return "carousel"
 
-    # Image detection
+    # Image detection — distinguish gif / images / image
     if has_image or any(kw in ct for kw in ("image", "photo", "infographic")):
+        if is_gif:
+            return "gif"
+        if image_count >= 2:
+            return "images"
         return "image"
 
     # Text-only fallback

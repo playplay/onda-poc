@@ -12,6 +12,8 @@ const FORMAT_COLORS: Record<string, { bg: string; text: string; border: string }
   video:     { bg: "bg-purple-50", text: "text-purple-700", border: "border-purple-200" },
   carousel:  { bg: "bg-blue-50",   text: "text-blue-700",   border: "border-blue-200" },
   image:     { bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-200" },
+  images:    { bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-200" },
+  gif:       { bg: "bg-orange-100", text: "text-orange-800", border: "border-orange-300" },
   text:      { bg: "bg-gray-50",   text: "text-gray-500",   border: "border-gray-200" },
 };
 
@@ -37,8 +39,17 @@ function computeEngagement(post: Post) {
   return post.reactions + post.comments * 3;
 }
 
-function capitalize(s: string) {
-  return s.charAt(0).toUpperCase() + s.slice(1);
+const FORMAT_LABELS: Record<string, string> = {
+  image: "Image",
+  images: "Images",
+  gif: "GIF",
+  video: "Video",
+  carousel: "Carousel",
+  text: "Text",
+};
+
+function formatLabel(fmt: string) {
+  return FORMAT_LABELS[fmt] || fmt.charAt(0).toUpperCase() + fmt.slice(1);
 }
 
 function PersonIcon({ className = "" }: { className?: string }) {
@@ -192,7 +203,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
                   : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
               }`}
             >
-              {capitalize(fmt)} ({formatCounts.get(fmt) || 0})
+              {formatLabel(fmt)} ({formatCounts.get(fmt) || 0})
             </button>
           );
         })}
@@ -272,7 +283,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
                   </p>
                   {fmt && (
                     <span className={`shrink-0 text-xs px-2 py-0.5 rounded ${style.bg} ${style.text}`}>
-                      {capitalize(fmt)}
+                      {formatLabel(fmt)}
                     </span>
                   )}
                 </div>
