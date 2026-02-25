@@ -82,6 +82,9 @@ async def _trigger_batch(
     batch: list[dict],
 ) -> str:
     """Trigger one Bright Data company batch and return the snapshot_id."""
+    payload_preview = json.dumps(batch)[:500]
+    logger.info(f"BD trigger: sending {len(batch)} items, payload={payload_preview}")
+
     response = await client.post(
         f"{BASE_URL}/trigger",
         headers=_headers(),
@@ -94,8 +97,11 @@ async def _trigger_batch(
         },
         json=batch,
     )
+
+    body = response.text[:500]
+    logger.info(f"BD trigger: status={response.status_code}, response={body}")
+
     if response.status_code >= 400:
-        body = response.text[:500]
         logger.error(f"Bright Data trigger failed ({response.status_code}): {body}")
         response.raise_for_status()
     return response.json()["snapshot_id"]

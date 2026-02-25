@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Boolean, DateTime, Text
+from sqlalchemy import String, Integer, DateTime, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,9 +16,6 @@ class ScrapeJob(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     search_query: Mapped[str] = mapped_column(Text, nullable=False)
     sector: Mapped[str | None] = mapped_column(Text, nullable=True)
-    content_type_filter: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    is_corporate: Mapped[bool] = mapped_column(Boolean, default=False)
-    max_results: Mapped[int] = mapped_column(Integer, default=50)
     status: Mapped[str] = mapped_column(String(30), default="pending")  # pending/running/downloading_videos/completed/failed
     total_posts: Mapped[int | None] = mapped_column(Integer, nullable=True)
     apify_run_id: Mapped[str | None] = mapped_column(String(255), nullable=True)

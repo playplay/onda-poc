@@ -1,3 +1,7 @@
+import logging
+
+logging.basicConfig(level=logging.INFO)
+
 import jwt as pyjwt
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware

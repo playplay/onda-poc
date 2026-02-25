@@ -114,6 +114,36 @@ async def trigger_scrape(
     return job
 
 
+@router.delete("/scrape-failed", status_code=204)
+async def delete_failed_jobs(
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete all failed scrape jobs and their associated posts + analyses."""
+    from sqlalchemy import delete as sa_delete
+
+    result = await db.execute(
+        select(ScrapeJob).where(ScrapeJob.status == "failed")
+    )
+    failed_jobs = result.scalars().all()
+
+    if not failed_jobs:
+        return
+
+    job_ids = [j.id for j in failed_jobs]
+    post_ids_q = select(Post.id).where(Post.scrape_job_id.in_(job_ids))
+    await db.execute(
+        sa_delete(GeminiAnalysis).where(GeminiAnalysis.post_id.in_(post_ids_q))
+    )
+    await db.execute(
+        sa_delete(Post).where(Post.scrape_job_id.in_(job_ids))
+    )
+    for job in failed_jobs:
+        await db.delete(job)
+
+    await db.commit()
+    logger.info(f"Deleted {len(failed_jobs)} failed scrape jobs")
+
+
 @router.get("/scrape/{job_id}", response_model=ScrapeJobOut)
 async def get_scrape_status(
     job_id: uuid.UUID,
