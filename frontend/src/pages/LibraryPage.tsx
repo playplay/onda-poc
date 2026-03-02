@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import type { LibraryResponse } from "../types";
-import { getLibrary } from "../api/client";
+import { getLibrary, getAccounts } from "../api/client";
 import PostCard, { normalizeFormat, formatLabel } from "../components/PostCard";
 
 // Module-level cache with TTL
@@ -112,6 +112,9 @@ export default function LibraryPage() {
   const [data, setData] = useState<LibraryResponse | null>(getCached);
   const [loading, setLoading] = useState(!data);
   const [error, setError] = useState<string | null>(null);
+  const [accountNames, setAccountNames] = useState<Map<string, string>>(new Map());
+  const [accountTypes, setAccountTypes] = useState<Map<string, "company" | "person">>(new Map());
+  const [playplaySlugs, setPlayplaySlugs] = useState<Set<string>>(new Set());
   const [filterSectors, setFilterSectors] = useState<Set<string>>(new Set());
   const [filterFormats, setFilterFormats] = useState<Set<string>>(new Set());
   const [filterUseCases, setFilterUseCases] = useState<Set<string>>(new Set());
@@ -133,6 +136,33 @@ export default function LibraryPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Load all accounts to build name/type maps
+  useEffect(() => {
+    getAccounts().then((accounts) => {
+      const names = new Map<string, string>();
+      const types = new Map<string, "company" | "person">();
+      const slugs = new Set<string>();
+      for (const a of accounts) {
+        const match = a.linkedin_url.match(/\/(in|company)\/([^/]+)/);
+        const slug = match ? match[2] : "";
+        if (!slug) continue;
+        names.set(slug, a.name);
+        types.set(slug, a.type);
+        names.set(a.name, a.name);
+        types.set(a.name, a.type);
+        names.set(a.name.toLowerCase(), a.name);
+        types.set(a.name.toLowerCase(), a.type);
+        if (a.is_playplay_client) {
+          slugs.add(slug);
+          slugs.add(a.name);
+          slugs.add(a.name.toLowerCase());
+        }
+      }
+      setAccountNames(names);
+      setAccountTypes(types);
+      setPlayplaySlugs(slugs);
+    });
+  }, []);
 
   const allScores = useMemo(
     () => data?.posts.map((p) => p.engagement_score) ?? [],
@@ -281,6 +311,9 @@ export default function LibraryPage() {
             key={post.id}
             post={post}
             allScores={allScores}
+            accountNames={accountNames}
+            accountTypes={accountTypes}
+            playplaySlugs={playplaySlugs}
             showSector
           />
         ))}
