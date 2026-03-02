@@ -5,7 +5,6 @@ import { listScrapeJobs, deleteScrapeJob } from "./api/client";
 import type { ScrapeJob } from "./types";
 import ScrapeForm from "./components/ScrapeForm";
 import ResultsPage from "./pages/ResultsPage";
-import TrendDetailPage from "./pages/TrendDetailPage";
 import AdminPage from "./pages/AdminPage";
 import LoginPage from "./pages/LoginPage";
 import LibraryPage from "./pages/LibraryPage";
@@ -274,7 +273,6 @@ export default function App() {
               }
             />
             <Route path="/results/:jobId" element={<ResultsPage jobs={jobs} refreshJobs={refreshJobs} />} />
-            <Route path="/results/:jobId/trend/:rank" element={<TrendDetailPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Routes>
         </main>

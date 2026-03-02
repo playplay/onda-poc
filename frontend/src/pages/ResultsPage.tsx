@@ -1,27 +1,20 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import {
   getScrapeStatus,
   getPosts,
-  getRanking,
-  startAnalysis,
-  processNextAnalysis,
-  getAnalysis,
-  getAnalysesByJob,
   getAccounts,
   getUseCasePivot,
   classifyUseCases,
 } from "../api/client";
-import type { ScrapeJob, Post, RankedTrend, GeminiAnalysis, UseCasePivotResponse } from "../types";
+import type { ScrapeJob, Post, UseCasePivotResponse } from "../types";
 import PostGallery from "../components/PostGallery";
-import TrendRanking from "../components/TrendRanking";
 import UseCaseTable from "../components/UseCaseTable";
-import type { AnalysisStatus } from "../components/TrendRanking";
 
 // Module-level cache for completed job data — survives re-mounts
 const jobDataCache = new Map<
   string,
-  { posts: Post[]; trends: RankedTrend[]; analyses: GeminiAnalysis[]; useCasePivot?: UseCasePivotResponse }
+  { posts: Post[]; useCasePivot?: UseCasePivotResponse }
 >();
 
 interface Props {
@@ -31,7 +24,6 @@ interface Props {
 
 export default function ResultsPage({ jobs, refreshJobs }: Props) {
   const { jobId } = useParams<{ jobId: string }>();
-  const navigate = useNavigate();
 
   // Derive job from props — instant, no API call needed
   const job = useMemo(
@@ -40,8 +32,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
   );
 
   const [posts, setPosts] = useState<Post[]>([]);
-  const [trends, setTrends] = useState<RankedTrend[]>([]);
-  const [tab, setTab] = useState<"gallery" | "usecases" | "trends">("gallery");
+  const [tab, setTab] = useState<"gallery" | "usecases">("gallery");
   const [useCasePivot, setUseCasePivot] = useState<UseCasePivotResponse | null>(null);
 
   // Gallery filters set from UseCaseTable navigation
@@ -51,44 +42,11 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
   const [accountNames, setAccountNames] = useState<Map<string, string>>(new Map());
   const [accountTypes, setAccountTypes] = useState<Map<string, "company" | "person">>(new Map());
 
-  // Analysis state per trend rank
-  const [analysisStatus, setAnalysisStatus] = useState<Record<number, AnalysisStatus>>({});
-  const [analyses, setAnalyses] = useState<GeminiAnalysis[]>([]);
-
-  const allPostScores = useMemo(
-    () => posts.map((p) => p.engagement_score),
-    [posts]
-  );
-
-  // Helper: derive analysis status from trends + analyses
-  const deriveAnalysisStatus = useCallback(
-    (trendsData: RankedTrend[], existingAnalyses: GeminiAnalysis[]) => {
-      if (existingAnalyses.length === 0) {
-        setAnalysisStatus({});
-        return;
-      }
-      const analyzedPostIds = new Set(existingAnalyses.map((a) => a.post_id));
-      const statusMap: Record<number, AnalysisStatus> = {};
-      for (const trend of trendsData) {
-        const videoIds = trend.top_posts
-          .filter((p) => p.video_url)
-          .map((p) => p.id);
-        if (videoIds.length > 0 && videoIds.every((id) => analyzedPostIds.has(id))) {
-          statusMap[trend.rank] = "done";
-        }
-      }
-      setAnalysisStatus(statusMap);
-    },
-    []
-  );
-
-  // Load completed job data + restore existing analyses from DB
+  // Load completed job data
   const loadCompletedData = useCallback(
     async (id: string) => {
-      const [postsData, trendsData, existingAnalyses, pivotData] = await Promise.all([
+      const [postsData, pivotData] = await Promise.all([
         getPosts(id),
-        getRanking(id),
-        getAnalysesByJob(id),
         getUseCasePivot(id),
       ]);
       // Deduplicate posts by post_url
@@ -99,16 +57,11 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
         return true;
       });
       setPosts(uniquePosts);
-      setTrends(trendsData);
-      setAnalyses(existingAnalyses);
       setUseCasePivot(pivotData);
-      deriveAnalysisStatus(trendsData, existingAnalyses);
 
       // Populate cache
       jobDataCache.set(id, {
         posts: uniquePosts,
-        trends: trendsData,
-        analyses: existingAnalyses,
         useCasePivot: pivotData,
       });
 
@@ -141,7 +94,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
           });
       }
     },
-    [deriveAnalysisStatus]
+    []
   );
 
   // On jobId change: restore from cache or clear state
@@ -149,18 +102,12 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
     const cached = jobId ? jobDataCache.get(jobId) : undefined;
     if (cached) {
       setPosts(cached.posts);
-      setTrends(cached.trends);
-      setAnalyses(cached.analyses);
       setUseCasePivot(cached.useCasePivot ?? null);
-      deriveAnalysisStatus(cached.trends, cached.analyses);
     } else {
       setPosts([]);
-      setTrends([]);
-      setAnalyses([]);
       setUseCasePivot(null);
-      setAnalysisStatus({});
     }
-  }, [jobId, deriveAnalysisStatus]);
+  }, [jobId]);
 
   // Build account name map + PlayPlay slugs from watched accounts
   useEffect(() => {
@@ -216,73 +163,6 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
     return () => clearInterval(interval);
   }, [jobId, job?.status, refreshJobs]);
 
-  // Launch analysis: one-at-a-time processing loop
-  const handleLaunchAnalysis = useCallback(
-    async (rank: number, postIds: string[]) => {
-      setAnalysisStatus((prev) => ({ ...prev, [rank]: "analyzing" }));
-
-      try {
-        // Fetch existing analyses first
-        const existingResults = await Promise.all(
-          postIds.map((id) => getAnalysis(id))
-        );
-        const existing = existingResults.filter(
-          (a): a is GeminiAnalysis => a !== null
-        );
-        if (existing.length > 0) {
-          setAnalyses((prev) => {
-            const ids = new Set(prev.map((a) => a.id));
-            return [...prev, ...existing.filter((a) => !ids.has(a.id))];
-          });
-        }
-
-        // Start analysis (returns counts)
-        const existingPostIds = new Set(existing.map((a) => a.post_id));
-        const toAnalyze = postIds.filter((id) => !existingPostIds.has(id));
-
-        if (toAnalyze.length > 0) {
-          await startAnalysis(toAnalyze);
-
-          // Process one post at a time in a loop
-          let done = false;
-          while (!done) {
-            const progress = await processNextAnalysis(toAnalyze);
-            if (progress.current_analysis) {
-              setAnalyses((prev) => {
-                const ids = new Set(prev.map((a) => a.id));
-                if (ids.has(progress.current_analysis!.id)) return prev;
-                return [...prev, progress.current_analysis!];
-              });
-            }
-            done = progress.all_done;
-          }
-        }
-
-        setAnalysisStatus((prev) => ({ ...prev, [rank]: "done" }));
-
-        // Update cache with new analyses
-        if (jobId && jobDataCache.has(jobId)) {
-          const cached = jobDataCache.get(jobId)!;
-          jobDataCache.set(jobId, {
-            ...cached,
-            analyses: [...analyses, ...existing],
-          });
-        }
-      } catch (err) {
-        console.error("Analysis failed:", err);
-        setAnalysisStatus((prev) => ({ ...prev, [rank]: "error" }));
-      }
-    },
-    [jobId, analyses]
-  );
-
-  const handleNavigateToTrend = useCallback(
-    (rank: number) => {
-      navigate(`/results/${jobId}/trend/${rank}`);
-    },
-    [jobId, navigate]
-  );
-
   const handleUseCaseCellClick = useCallback(
     (useCase: string | null, format: string | null) => {
       setGalleryFilterUseCases(useCase ? new Set([useCase]) : new Set());
@@ -304,9 +184,28 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
           <h2 className="text-xl font-semibold text-gray-900">
             {job.sector || job.search_query}
           </h2>
-          <p className="text-sm text-gray-400">
-            {posts.length} posts scraped
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm text-gray-400">
+              {posts.length} posts scraped
+            </p>
+            <div className="relative group/info">
+              <span className="w-4 h-4 rounded-full border border-gray-300 text-gray-400 group-hover/info:text-gray-600 group-hover/info:border-gray-400 inline-flex items-center justify-center text-[10px] font-medium transition-colors cursor-default">
+                i
+              </span>
+              <div className="invisible opacity-0 group-hover/info:visible group-hover/info:opacity-100 transition-opacity absolute top-full left-0 mt-1.5 z-30 bg-white border border-gray-200 rounded-lg shadow-lg p-4 w-80 text-xs text-gray-600 leading-relaxed">
+                <p className="font-medium text-gray-900 mb-2">How posts are selected</p>
+                <p className="mb-2">
+                  Best 3 posts out of the 10 last posts of each account, ranked by engagement rate.
+                </p>
+                <p className="mb-2">
+                  <span className="font-mono bg-gray-50 px-1 py-0.5 rounded text-gray-700">
+                    Engagement Rate = (reactions + comments) / followers &times; 100
+                  </span>
+                </p>
+                <p className="text-gray-500">All posts released less than 48 hours ago are excluded.</p>
+              </div>
+            </div>
+          </div>
         </div>
         <span className="text-sm text-gray-400 shrink-0">
           {new Date(job.created_at).toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" })}
@@ -372,16 +271,6 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
             >
               Use Cases
             </button>
-            <button
-              onClick={() => setTab("trends")}
-              className={`px-1 py-2 text-sm font-medium border-b-2 transition-colors ${
-                tab === "trends"
-                  ? "border-gray-900 text-gray-900"
-                  : "border-transparent text-gray-400 hover:text-gray-600"
-              }`}
-            >
-              Trend Ranking
-            </button>
           </div>
 
           {tab === "usecases" && (
@@ -390,16 +279,6 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
               formatFamilies={useCasePivot?.format_families ?? []}
               status={useCasePivot?.status ?? "classifying"}
               onCellClick={handleUseCaseCellClick}
-            />
-          )}
-          {tab === "trends" && (
-            <TrendRanking
-              trends={trends}
-              allPostScores={allPostScores}
-              analyses={analyses}
-              analysisStatus={analysisStatus}
-              onLaunchAnalysis={handleLaunchAnalysis}
-              onNavigateToTrend={handleNavigateToTrend}
             />
           )}
           {tab === "gallery" && (

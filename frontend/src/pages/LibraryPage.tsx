@@ -112,9 +112,6 @@ export default function LibraryPage() {
   const [data, setData] = useState<LibraryResponse | null>(getCached);
   const [loading, setLoading] = useState(!data);
   const [error, setError] = useState<string | null>(null);
-  const [infoOpen, setInfoOpen] = useState(false);
-  const infoRef = useRef<HTMLDivElement>(null);
-
   const [filterSectors, setFilterSectors] = useState<Set<string>>(new Set());
   const [filterFormats, setFilterFormats] = useState<Set<string>>(new Set());
   const [filterUseCases, setFilterUseCases] = useState<Set<string>>(new Set());
@@ -136,14 +133,6 @@ export default function LibraryPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    if (!infoOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (infoRef.current && !infoRef.current.contains(e.target as Node)) setInfoOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [infoOpen]);
 
   const allScores = useMemo(
     () => data?.posts.map((p) => p.engagement_score) ?? [],
@@ -210,31 +199,26 @@ export default function LibraryPage() {
           <h2 className="text-xl font-semibold text-gray-900">Library</h2>
           <div className="flex items-center gap-1.5">
             <p className="text-sm text-gray-400">Best posts across all searches</p>
-            <div className="relative" ref={infoRef}>
-              <button
-                onClick={() => setInfoOpen(!infoOpen)}
-                className="w-4 h-4 rounded-full border border-gray-300 text-gray-400 hover:text-gray-600 hover:border-gray-400 inline-flex items-center justify-center text-[10px] font-medium transition-colors"
-              >
+            <div className="relative group/info">
+              <span className="w-4 h-4 rounded-full border border-gray-300 text-gray-400 group-hover/info:text-gray-600 group-hover/info:border-gray-400 inline-flex items-center justify-center text-[10px] font-medium transition-colors cursor-default">
                 i
-              </button>
-              {infoOpen && (
-                <div className="absolute top-full left-0 mt-1.5 z-30 bg-white border border-gray-200 rounded-lg shadow-lg p-4 w-80 text-xs text-gray-600 leading-relaxed">
-                  <p className="font-medium text-gray-900 mb-2">How posts are ranked</p>
-                  <p className="mb-2">
-                    <span className="font-mono bg-gray-50 px-1 py-0.5 rounded text-gray-700">
-                      Engagement Rate = (reactions + comments) / followers &times; 100
-                    </span>
-                  </p>
-                  <p className="mb-1.5">Posts are ranked relative to audience size:</p>
-                  <div className="space-y-0.5 mb-2 pl-2 text-gray-500">
-                    <p>100k+ followers &rarr; Viral &gt; 2% &middot; Engaging &ge; 0.5%</p>
-                    <p>10k&ndash;100k &rarr; Viral &gt; 3% &middot; Engaging &ge; 1%</p>
-                    <p>&lt; 10k &rarr; Viral &gt; 5% &middot; Engaging &ge; 2%</p>
-                  </div>
-                  <p className="text-gray-500">Top 10 per format + Top 10 per use case.</p>
-                  <p className="text-gray-500">Posts without follower data are excluded.</p>
+              </span>
+              <div className="invisible opacity-0 group-hover/info:visible group-hover/info:opacity-100 transition-opacity absolute top-full left-0 mt-1.5 z-30 bg-white border border-gray-200 rounded-lg shadow-lg p-4 w-80 text-xs text-gray-600 leading-relaxed">
+                <p className="font-medium text-gray-900 mb-2">How posts are ranked</p>
+                <p className="mb-2">
+                  <span className="font-mono bg-gray-50 px-1 py-0.5 rounded text-gray-700">
+                    Engagement Rate = (reactions + comments) / followers &times; 100
+                  </span>
+                </p>
+                <p className="mb-1.5">Posts are ranked relative to audience size:</p>
+                <div className="space-y-0.5 mb-2 pl-2 text-gray-500">
+                  <p>100k+ followers &rarr; Viral &gt; 2% &middot; Engaging &ge; 0.5%</p>
+                  <p>10k&ndash;100k &rarr; Viral &gt; 3% &middot; Engaging &ge; 1%</p>
+                  <p>&lt; 10k &rarr; Viral &gt; 5% &middot; Engaging &ge; 2%</p>
                 </div>
-              )}
+                <p className="text-gray-500">Top 10 per format + Top 10 per use case.</p>
+                <p className="text-gray-500">Posts without follower data are excluded.</p>
+              </div>
             </div>
           </div>
         </div>
