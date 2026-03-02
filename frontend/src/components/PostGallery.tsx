@@ -148,7 +148,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
               !hasUseCases
                 ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
                 : filterUseCases.size > 0
-                  ? "bg-indigo-50 text-indigo-700 border-indigo-300"
+                  ? "bg-gray-50 text-gray-900 border-gray-300 font-medium"
                   : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
             }`}
           >
@@ -181,7 +181,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
                           return next;
                         });
                       }}
-                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      className="rounded border-gray-300 text-gray-700 focus:ring-gray-400"
                     />
                     <span className="truncate flex-1 capitalize">{uc}</span>
                     <span className="text-gray-400 shrink-0 text-xs">{count}</span>
@@ -190,7 +190,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
               {filterUseCases.size > 0 && (
                 <button
                   onClick={() => setFilterUseCases(new Set())}
-                  className="w-full text-left px-3 py-1.5 text-sm text-indigo-600 hover:bg-indigo-50 border-t border-gray-100"
+                  className="w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50 border-t border-gray-100"
                 >
                   Clear use cases
                 </button>
@@ -202,7 +202,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
           {Array.from(filterUseCases).map((uc) => (
             <span
               key={uc}
-              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200"
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-gray-50 text-gray-700 border border-gray-200"
             >
               <span className="capitalize truncate max-w-[200px]">{uc}</span>
               <button
@@ -213,7 +213,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
                     return next;
                   });
                 }}
-                className="text-indigo-400 hover:text-indigo-700 ml-0.5"
+                className="text-gray-400 hover:text-gray-700 ml-0.5"
               >
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
