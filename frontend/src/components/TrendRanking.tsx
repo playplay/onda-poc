@@ -59,7 +59,7 @@ export default function TrendRanking({
           .map((p) => p.id);
         const allPostIds = trend.top_posts.map((p) => p.id);
         const avgEng = getEngagementLabel(
-          { engagement_rate: null, author_follower_count: null, engagement_score: trend.avg_engagement_score },
+          { engagement_rate: null, author_follower_count: null, engagement_score: trend.avg_engagement_rate },
           scores,
         );
         const status = analysisStatus[trend.rank] ?? "idle";

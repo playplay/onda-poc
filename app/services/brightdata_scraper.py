@@ -26,7 +26,7 @@ from app.models.scrape_job import ScrapeJob
 from app.models.watched_account import WatchedAccount
 from app.services.classifier import classify_format_family, detect_image_gif
 from app.services.date_utils import parse_date
-from app.services.ranking import compute_engagement_score, compute_engagement_rate
+from app.services.ranking import compute_engagement_score, compute_engagement_rate, select_top_posts
 
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,8 @@ logger = logging.getLogger(__name__)
 DATASET_ID = "gd_lyy3tktm25m4avu764"
 DISCOVER_BY = "company_url"
 BASE_URL = "https://api.brightdata.com/datasets/v3"
-POSTS_PER_ACCOUNT = 3
+POSTS_TO_FETCH = 10
+POSTS_TO_KEEP = 3
 
 # Fields to request from Bright Data API (excludes comments, HTML, other profiles)
 OUTPUT_FIELDS = "|".join([
@@ -90,7 +91,7 @@ async def _trigger_batch(
         "dataset_id": DATASET_ID,
         "type": "discover_new",
         "discover_by": DISCOVER_BY,
-        "limit_per_input": POSTS_PER_ACCOUNT,
+        "limit_per_input": POSTS_TO_FETCH,
     }
 
     try:
@@ -187,7 +188,13 @@ async def _check_progress(client: httpx.AsyncClient, snapshot_id: str) -> str:
 
 
 async def _fetch_results(client: httpx.AsyncClient, snapshot_id: str) -> list[dict]:
-    """Fetch results for a single snapshot."""
+    """Fetch results for a single snapshot.
+
+    Handles unexpected BD response formats:
+    - dict with a list value → extract the list
+    - single dict item (looks like a post) → wrap in list
+    - JSONL (newline-delimited JSON) → parse each line
+    """
     resp = await client.get(
         f"{BASE_URL}/snapshot/{snapshot_id}",
         headers=_headers(),
@@ -195,7 +202,40 @@ async def _fetch_results(client: httpx.AsyncClient, snapshot_id: str) -> list[di
     )
     resp.raise_for_status()
     items = resp.json()
-    return items if isinstance(items, list) else []
+
+    if isinstance(items, list):
+        return items
+
+    # --- Auto-recovery for non-list responses ---
+    logger.warning(
+        f"BD snapshot {snapshot_id}: expected list, got {type(items).__name__}: "
+        f"{str(items)[:300]}"
+    )
+
+    # Case 1: dict with a list value (e.g. {"results": [...]} or {"data": [...]})
+    if isinstance(items, dict):
+        for key, val in items.items():
+            if isinstance(val, list) and val and isinstance(val[0], dict):
+                logger.info(f"BD snapshot {snapshot_id}: recovered {len(val)} items from key '{key}'")
+                return val
+        # Case 2: single post item (has typical post fields)
+        if items.get("url") or items.get("post_text") or items.get("user_id"):
+            logger.info(f"BD snapshot {snapshot_id}: recovered 1 item (single dict)")
+            return [items]
+
+    # Case 3: response might be JSONL (newline-delimited JSON)
+    try:
+        text = resp.text.strip()
+        if "\n" in text:
+            lines = [json.loads(line) for line in text.splitlines() if line.strip()]
+            if lines and isinstance(lines[0], dict):
+                logger.info(f"BD snapshot {snapshot_id}: recovered {len(lines)} items from JSONL")
+                return lines
+    except (json.JSONDecodeError, Exception):
+        pass
+
+    logger.error(f"BD snapshot {snapshot_id}: could not recover any items, returning []")
+    return []
 
 
 async def check_scrape_ready(job: ScrapeJob) -> str:
@@ -257,7 +297,10 @@ async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Po
 
     items = [
         item for item in items
-        if not item.get("error") and unquote(item.get("user_id", "")) in allowed_slugs
+        if not item.get("error")
+        and unquote(item.get("user_id", "")) in allowed_slugs
+        and item.get("post_type") != "repost"
+        and not (item.get("title") or "").strip().startswith("|")
     ]
 
     # Deduplicate by post URL
@@ -275,7 +318,7 @@ async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Po
         f"{len(items)} posts after filtering + dedup (allowed slugs: {allowed_slugs})"
     )
 
-    # Take the N most recent posts per account (by date)
+    # Select top posts per account by engagement rate
     items_by_user: dict[str, list[dict]] = defaultdict(list)
     for item in items:
         uid = unquote(item.get("user_id", "unknown"))
@@ -283,8 +326,21 @@ async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Po
 
     top_items: list[dict] = []
     for uid, user_items in items_by_user.items():
-        user_items.sort(key=lambda x: x.get("date_posted", ""), reverse=True)
-        top_items.extend(user_items[:POSTS_PER_ACCOUNT])
+        selected = select_top_posts(
+            user_items,
+            posts_to_keep=POSTS_TO_KEEP,
+            get_date=lambda x: parse_date(x.get("date_posted")),
+            get_reactions=lambda x: int(x.get("num_likes", 0) or 0),
+            get_comments=lambda x: int(x.get("num_comments", 0) or 0),
+            get_followers=lambda x: int(x.get("user_followers")) if x.get("user_followers") else None,
+        )
+        top_items.extend(selected)
+
+    if not top_items and items_by_user:
+        logger.warning(
+            f"Bright Data: 0 posts selected from {sum(len(v) for v in items_by_user.values())} items "
+            f"({len(items_by_user)} companies) — check _fetch_results logs"
+        )
 
     # Map to Post models
     created_posts: list[Post] = []

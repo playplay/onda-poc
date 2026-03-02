@@ -77,7 +77,7 @@ export interface RankedTrend {
   rank: number;
   format_family: string;
   post_count: number;
-  avg_engagement_score: number;
+  avg_engagement_rate: number;
   top_posts: Post[];
 }
 
@@ -132,7 +132,7 @@ export interface TrendDetailResponse {
     rank: number;
     format_family: string;
     post_count: number;
-    avg_engagement_score: number;
+    avg_engagement_rate: number;
   } | null;
   posts: Post[];
   analyses: GeminiAnalysis[];
@@ -255,4 +255,11 @@ export interface UseCaseClassifyResult {
   classified: number;
   total: number;
   already_classified: number;
+}
+
+export interface LibraryResponse {
+  posts: Post[];
+  sectors: string[];
+  format_families: string[];
+  use_cases: string[];
 }

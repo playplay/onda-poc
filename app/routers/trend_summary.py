@@ -28,7 +28,7 @@ async def _get_trend_and_posts(
     result = await db.execute(
         select(Post)
         .where(Post.scrape_job_id == job_id, Post.format_family == trend.format_family)
-        .order_by(Post.engagement_score.desc())
+        .order_by(Post.engagement_rate.desc().nullslast(), Post.engagement_score.desc())
     )
     posts = list(result.scalars().all())
 
@@ -43,7 +43,7 @@ async def _get_trend_and_posts(
             "rank": trend.rank,
             "format_family": trend.format_family,
             "post_count": len(posts),
-            "avg_engagement_score": trend.avg_engagement_score,
+            "avg_engagement_rate": trend.avg_engagement_rate,
         },
         posts,
         analyses_map,

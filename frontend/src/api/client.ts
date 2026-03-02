@@ -13,6 +13,7 @@ import type {
   WatchedAccountUpdate,
   UseCasePivotResponse,
   UseCaseClassifyResult,
+  LibraryResponse,
 } from "../types";
 
 const api = axios.create({
@@ -193,6 +194,13 @@ export async function getUseCasePivot(
   const { data } = await api.get<UseCasePivotResponse>("/use-cases/pivot", {
     params: { scrape_job_id: jobId },
   });
+  return data;
+}
+
+// --- Library ---
+
+export async function getLibrary(): Promise<LibraryResponse> {
+  const { data } = await api.get<LibraryResponse>("/library");
   return data;
 }
 

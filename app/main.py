@@ -10,7 +10,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine, Base
-from app.routers import scrape, posts, analysis, trend_summary, accounts, auth, use_cases
+from app.routers import scrape, posts, analysis, trend_summary, accounts, auth, use_cases, library
 
 app = FastAPI(
     title="Onda API",
@@ -68,6 +68,7 @@ app.include_router(analysis.router, prefix="/api", tags=["analysis"])
 app.include_router(trend_summary.router, prefix="/api", tags=["trends"])
 app.include_router(accounts.router, prefix="/api", tags=["accounts"])
 app.include_router(use_cases.router, prefix="/api", tags=["use-cases"])
+app.include_router(library.router, prefix="/api", tags=["library"])
 
 
 @app.get("/health")

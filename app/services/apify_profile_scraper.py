@@ -25,13 +25,14 @@ from app.models.scrape_job import ScrapeJob
 from app.models.watched_account import WatchedAccount
 from app.services.classifier import classify_format_family, detect_image_gif
 from app.services.date_utils import parse_date
-from app.services.ranking import compute_engagement_score, compute_engagement_rate
+from app.services.ranking import compute_engagement_score, compute_engagement_rate, select_top_posts
 
 logger = logging.getLogger(__name__)
 
 ACTOR_ID = "harvestapi/linkedin-profile-posts"
-MAX_POSTS_PER_INPUT = 10
-POSTS_PER_PERSON = 3
+PROFILE_INFO_ACTOR_ID = "harvestapi/linkedin-profile-scraper"
+POSTS_TO_FETCH = 10
+POSTS_TO_KEEP = 3
 
 
 def _normalize_profile_url(url: str) -> str:
@@ -48,8 +49,39 @@ def _normalize_profile_url(url: str) -> str:
 
 def _extract_slug(linkedin_url: str) -> str:
     """Extract slug from LinkedIn profile URL: .../in/johndoe/ → johndoe"""
+    from urllib.parse import unquote
     match = re.search(r"/in/([^/]+)", linkedin_url)
-    return match.group(1).lower() if match else ""
+    return unquote(match.group(1)).lower() if match else ""
+
+
+async def fetch_follower_counts(accounts: list[WatchedAccount]) -> dict[str, int]:
+    """Fetch follower counts for person accounts missing them, via linkedin-profile-scraper."""
+    missing = [a for a in accounts if not a.follower_count]
+    if not missing:
+        return {}
+
+    client = ApifyClient(settings.APIFY_TOKEN)
+    urls = [_normalize_profile_url(a.linkedin_url) for a in missing]
+    logger.info(f"Fetching follower counts for {len(missing)} accounts via {PROFILE_INFO_ACTOR_ID}")
+
+    run = await asyncio.to_thread(
+        client.actor(PROFILE_INFO_ACTOR_ID).call,
+        run_input={"urls": urls},
+    )
+    dataset_id = run.get("defaultDatasetId")
+    items = await asyncio.to_thread(
+        lambda: list(client.dataset(dataset_id).iterate_items())
+    )
+
+    result: dict[str, int] = {}
+    for item in items:
+        slug = (item.get("publicIdentifier") or "").lower()
+        fc = item.get("followerCount")
+        if slug and fc:
+            result[slug] = int(fc)
+
+    logger.info(f"Got follower counts for {len(result)}/{len(missing)} accounts")
+    return result
 
 
 async def start_profile_scrape(
@@ -62,7 +94,7 @@ async def start_profile_scrape(
 
     actor_input = {
         "targetUrls": target_urls,
-        "maxPosts": MAX_POSTS_PER_INPUT,
+        "maxPosts": POSTS_TO_FETCH,
         "includeReposts": False,
         "includeQuotePosts": False,
         "scrapeReactions": False,
@@ -106,6 +138,7 @@ async def fetch_and_process_profile_posts(
     job: ScrapeJob,
     run_ids: list[str],
     allowed_slugs: set[str],
+    slug_to_followers: dict[str, int] | None = None,
 ) -> list[Post]:
     """Fetch Apify results, filter by author, dedup, top 3 per person, return Post models."""
     client = ApifyClient(settings.APIFY_TOKEN)
@@ -141,7 +174,15 @@ async def fetch_and_process_profile_posts(
             seen_ids.add(post_id)
             unique_items.append(item)
 
-    # Top N per person (sorted by postedAt.timestamp desc)
+    # Select top posts per person by engagement rate
+    def _get_followers(item: dict) -> int | None:
+        author = item.get("author") or {}
+        raw = author.get("followerCount") or author.get("followersCount")
+        if raw:
+            return int(raw)
+        slug = (author.get("publicIdentifier") or "").lower()
+        return (slug_to_followers or {}).get(slug)
+
     items_by_author: dict[str, list[dict]] = defaultdict(list)
     for item in unique_items:
         author = item.get("author") or {}
@@ -150,28 +191,35 @@ async def fetch_and_process_profile_posts(
 
     top_items: list[dict] = []
     for author_id, author_items in items_by_author.items():
-        author_items.sort(
-            key=lambda x: (x.get("postedAt") or {}).get("timestamp", 0),
-            reverse=True,
+        selected = select_top_posts(
+            author_items,
+            posts_to_keep=POSTS_TO_KEEP,
+            get_date=lambda x: parse_date((x.get("postedAt") or {}).get("date")),
+            get_reactions=lambda x: int((x.get("engagement") or {}).get("likes", 0) or 0),
+            get_comments=lambda x: int((x.get("engagement") or {}).get("comments", 0) or 0),
+            get_followers=lambda x: _get_followers(x),
         )
-        top_items.extend(author_items[:POSTS_PER_PERSON])
+        top_items.extend(selected)
 
     logger.info(
-        f"Apify profile scrape: {len(top_items)} posts after filter/dedup/top-{POSTS_PER_PERSON} "
+        f"Apify profile scrape: {len(top_items)} posts after filter/dedup/top-{POSTS_TO_KEEP} "
         f"(allowed slugs: {allowed_lower})"
     )
 
     # Map to Post models
     created_posts: list[Post] = []
     for item in top_items:
-        post = await _item_to_post(item, job)
+        author = item.get("author") or {}
+        author_slug = (author.get("publicIdentifier") or "").lower()
+        fallback = (slug_to_followers or {}).get(author_slug)
+        post = await _item_to_post(item, job, fallback_followers=fallback)
         db.add(post)
         created_posts.append(post)
 
     return created_posts
 
 
-async def _item_to_post(item: dict, job: ScrapeJob) -> Post:
+async def _item_to_post(item: dict, job: ScrapeJob, fallback_followers: int | None = None) -> Post:
     """Map a harvestapi/linkedin-profile-posts item to a Post model."""
     author = item.get("author") or {}
     engagement = item.get("engagement") or {}
@@ -228,7 +276,7 @@ async def _item_to_post(item: dict, job: ScrapeJob) -> Post:
 
     # Follower count & engagement rate
     followers_raw = author.get("followerCount") or author.get("followersCount")
-    author_follower_count = int(followers_raw) if followers_raw else None
+    author_follower_count = int(followers_raw) if followers_raw else fallback_followers
     engagement_rate = compute_engagement_rate(reactions, comments_count, author_follower_count)
 
     content = item.get("content") or ""

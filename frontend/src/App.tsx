@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Routes, Route, Link, useLocation, useNavigate, Navigate } from "react-router-dom";
+import { Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { listScrapeJobs, deleteScrapeJob } from "./api/client";
 import type { ScrapeJob } from "./types";
@@ -8,6 +8,7 @@ import ResultsPage from "./pages/ResultsPage";
 import TrendDetailPage from "./pages/TrendDetailPage";
 import AdminPage from "./pages/AdminPage";
 import LoginPage from "./pages/LoginPage";
+import LibraryPage from "./pages/LibraryPage";
 
 function formatDate(iso: string) {
   const d = new Date(iso);
@@ -182,8 +183,6 @@ export default function App() {
     }
   };
 
-  const latestJobId = jobs.length > 0 ? jobs[0].id : null;
-
   return (
     <div className="min-h-screen bg-white">
       <header className="sticky top-0 z-40 bg-white border-b border-gray-200">
@@ -240,8 +239,7 @@ export default function App() {
                           : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                       }`}
                     >
-                      <span className="font-medium truncate">{job.sector || job.search_query}</span>
-                      {" "}
+                      <span className="block font-medium truncate">{job.sector || job.search_query}</span>
                       <JobStatusLabel job={job} />
                     </button>
                     <button
@@ -268,10 +266,10 @@ export default function App() {
               element={
                 !jobsLoaded ? (
                   <p className="text-center text-gray-400 py-8">Loading...</p>
-                ) : latestJobId ? (
-                  <Navigate to={`/results/${latestJobId}`} replace />
-                ) : (
+                ) : jobs.length === 0 ? (
                   <EmptyHome onNewSearch={() => setShowNewSearch(true)} />
+                ) : (
+                  <LibraryPage />
                 )
               }
             />

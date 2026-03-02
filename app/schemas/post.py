@@ -40,5 +40,5 @@ class RankedTrendOut(BaseModel):
     rank: int
     format_family: str
     post_count: int
-    avg_engagement_score: float
+    avg_engagement_rate: float
     top_posts: list[PostOut]

@@ -200,15 +200,24 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
         if bd_status == "running" or profile_status == "running":
             return
 
-        # All ready — guard against double insertion
+        # All ready — lock job row to prevent concurrent insertion
+        locked_job = (await db.execute(
+            select(ScrapeJob)
+            .where(ScrapeJob.id == job.id)
+            .with_for_update()
+        )).scalar_one()
+        if locked_job.status == "completed":
+            return  # Another poll already completed this job
+
         existing_count = (await db.execute(
             select(func.count()).where(Post.scrape_job_id == job.id)
         )).scalar()
         if existing_count > 0:
-            job.status = "completed"
-            job.completed_at = datetime.utcnow()
+            locked_job.status = "completed"
+            locked_job.completed_at = datetime.utcnow()
             await db.commit()
             return
+        job = locked_job
 
         # Fetch and combine results from all backends
         all_posts: list[Post] = []
@@ -219,7 +228,11 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
             all_posts.extend(bd_posts)
 
         if "profile" in backends and job.profile_apify_run_ids:
-            from app.services.apify_profile_scraper import fetch_and_process_profile_posts
+            from app.services.apify_profile_scraper import (
+                fetch_and_process_profile_posts,
+                fetch_follower_counts,
+                _extract_slug,
+            )
             # Build allowed slugs from person accounts
             result = await db.execute(
                 select(WatchedAccount).where(
@@ -234,8 +247,22 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
                 if match:
                     allowed_slugs.add(match.group(1).lower())
 
+            # Fetch follower counts for accounts missing them
+            follower_map = await fetch_follower_counts(person_accounts)
+            for a in person_accounts:
+                slug = _extract_slug(a.linkedin_url)
+                if slug in follower_map:
+                    a.follower_count = follower_map[slug]
+
+            # Build slug → followers for post injection
+            slug_to_followers: dict[str, int] = {}
+            for a in person_accounts:
+                slug = _extract_slug(a.linkedin_url)
+                if a.follower_count:
+                    slug_to_followers[slug] = a.follower_count
+
             profile_posts = await fetch_and_process_profile_posts(
-                db, job, job.profile_apify_run_ids, allowed_slugs
+                db, job, job.profile_apify_run_ids, allowed_slugs, slug_to_followers
             )
             all_posts.extend(profile_posts)
 

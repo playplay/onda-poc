@@ -4,6 +4,13 @@ interface PostEngagement {
   engagement_score: number;
 }
 
+/** Compute percentile rank of value in a sorted-asc array (0 to 1). */
+function percentileRank(value: number, sortedAsc: number[]): number {
+  if (sortedAsc.length <= 1) return 0.5;
+  const below = sortedAsc.filter((s) => s < value).length;
+  return below / (sortedAsc.length - 1);
+}
+
 export function getEngagementLabel(
   post: PostEngagement,
   allScores: number[]
@@ -12,12 +19,12 @@ export function getEngagementLabel(
   const followers = post.author_follower_count;
 
   if (rate == null) {
-    // Fallback: percentile-based calculation for posts without follower data
+    // Percentile-based for posts without follower data
     if (allScores.length <= 1)
       return { label: "Neutral", className: "bg-gray-100 text-gray-500" };
 
     const sorted = [...allScores].sort((a, b) => a - b);
-    const rank = sorted.filter((s) => s < post.engagement_score).length / sorted.length;
+    const rank = percentileRank(post.engagement_score, sorted);
 
     if (rank >= 0.9)
       return { label: "Viral", className: "bg-accent-100 text-accent-700" };
