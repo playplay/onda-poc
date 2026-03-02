@@ -114,6 +114,14 @@ export default function PostCard({ post, allScores, accountTypes, accountNames, 
     >
       {/* Preview */}
       <div className="aspect-[4/3] overflow-hidden relative bg-gray-50">
+        {/* Platform badge — top-left corner */}
+        <div className="absolute top-0 left-0 z-10 bg-white rounded-br-xl p-1.5 shadow-sm">
+          {post.platform === "instagram" ? (
+            <InstagramIcon className="w-4 h-4 text-[#E4405F]" />
+          ) : (
+            <LinkedInIcon className="w-4 h-4 text-[#0A66C2]" />
+          )}
+        </div>
         {setHas(playplaySlugs, post.author_name || "") && (
           <div className="absolute top-0 right-0 z-10 overflow-hidden w-24 h-24 pointer-events-none">
             <div className="absolute top-[11px] right-[-26px] w-[120px] bg-violet-600 text-white text-[11px] font-semibold py-[1px] rotate-45 shadow-sm text-center pl-[20px]">
@@ -209,16 +217,9 @@ export default function PostCard({ post, allScores, accountTypes, accountNames, 
                 ? "text-blue-400"
                 : "text-gray-400";
             return (
-              <span className={`flex items-center gap-1.5 ml-auto ${textColor}`}>
-                <span className="flex items-center gap-1">
-                  <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
-                  {eng.label}
-                </span>
-                {post.platform === "instagram" ? (
-                  <InstagramIcon className="w-3.5 h-3.5 text-[#E4405F]" />
-                ) : (
-                  <LinkedInIcon className="w-3.5 h-3.5 text-[#0A66C2]" />
-                )}
+              <span className={`flex items-center gap-1 ml-auto ${textColor}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
+                {eng.label}
               </span>
             );
           })()}

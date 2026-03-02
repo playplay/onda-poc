@@ -7,9 +7,10 @@ import {
   getUseCasePivot,
   classifyUseCases,
 } from "../api/client";
-import type { ScrapeJob, Post, UseCasePivotResponse } from "../types";
+import type { ScrapeJob, Post, UseCasePivotResponse, UseCasePivotRow } from "../types";
 import PostGallery from "../components/PostGallery";
 import UseCaseTable from "../components/UseCaseTable";
+import { normalizeFormat } from "../components/PostCard";
 
 // Module-level cache for completed job data — survives re-mounts
 const jobDataCache = new Map<
@@ -38,6 +39,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
   // Gallery filters set from UseCaseTable navigation
   const [galleryFilterFormat, setGalleryFilterFormat] = useState<string | null>(null);
   const [galleryFilterUseCases, setGalleryFilterUseCases] = useState<Set<string>>(new Set());
+  const [ucPlatformFilter, setUcPlatformFilter] = useState<string | null>(null);
   const [playplaySlugs, setPlayplaySlugs] = useState<Set<string>>(new Set());
   const [accountNames, setAccountNames] = useState<Map<string, string>>(new Map());
   const [accountTypes, setAccountTypes] = useState<Map<string, "company" | "person">>(new Map());
@@ -173,6 +175,56 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
     return () => clearInterval(interval);
   }, [jobId, job?.status, refreshJobs]);
 
+  // Platform counts for the Use Cases tab filter
+  const ucPlatformCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of posts) {
+      const plat = p.platform || "linkedin";
+      map.set(plat, (map.get(plat) || 0) + 1);
+    }
+    return map;
+  }, [posts]);
+
+  // When a platform filter is active on Use Cases tab, recompute pivot from posts
+  const filteredPivot = useMemo(() => {
+    if (!ucPlatformFilter || !useCasePivot) return useCasePivot;
+    const filtered = posts.filter((p) => (p.platform || "linkedin") === ucPlatformFilter);
+    const byUseCase = new Map<string, { counts: Record<string, number>; total: number; bestUrl: string | null; bestEng: number }>();
+    const fmtSet = new Set<string>();
+    for (const p of filtered) {
+      if (!p.claude_use_case) continue;
+      let entry = byUseCase.get(p.claude_use_case);
+      if (!entry) {
+        entry = { counts: {}, total: 0, bestUrl: null, bestEng: -1 };
+        byUseCase.set(p.claude_use_case, entry);
+      }
+      const fmt = normalizeFormat(p.format_family);
+      if (fmt) {
+        entry.counts[fmt] = (entry.counts[fmt] || 0) + 1;
+        fmtSet.add(fmt);
+      }
+      entry.total++;
+      if ((p.engagement_rate ?? 0) > entry.bestEng) {
+        entry.bestEng = p.engagement_rate ?? 0;
+        entry.bestUrl = p.post_url || null;
+      }
+    }
+    const rows: UseCasePivotRow[] = Array.from(byUseCase.entries())
+      .map(([uc, d]) => ({
+        use_case: uc,
+        total: d.total,
+        counts_by_format: d.counts,
+        best_post_url: d.bestUrl,
+        best_post_engagement: d.bestEng,
+      }))
+      .sort((a, b) => b.total - a.total);
+    return {
+      rows,
+      format_families: useCasePivot.format_families.filter((f) => fmtSet.has(f)),
+      status: useCasePivot.status,
+    } as UseCasePivotResponse;
+  }, [ucPlatformFilter, useCasePivot, posts]);
+
   const handleUseCaseCellClick = useCallback(
     (useCase: string | null, format: string | null) => {
       setGalleryFilterUseCases(useCase ? new Set([useCase]) : new Set());
@@ -284,12 +336,51 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
           </div>
 
           {tab === "usecases" && (
-            <UseCaseTable
-              rows={useCasePivot?.rows ?? []}
-              formatFamilies={useCasePivot?.format_families ?? []}
-              status={useCasePivot?.status ?? "classifying"}
-              onCellClick={handleUseCaseCellClick}
-            />
+            <div className="space-y-4">
+              {/* Platform filter for Use Cases tab */}
+              <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg bg-white px-2.5 py-0.5">
+                <div className="py-1.5 flex items-center gap-2 min-h-[28px]">
+                  <span className="w-[120px] shrink-0 px-2.5 py-1 text-xs rounded-md border border-gray-200 bg-white text-gray-600 inline-flex items-center">
+                    Platform
+                  </span>
+                  <div className="flex flex-wrap items-center gap-1.5 flex-1">
+                    {([
+                      { key: "linkedin", label: "LinkedIn", count: ucPlatformCounts.get("linkedin") || 0, active: "bg-blue-50 text-blue-700 border-blue-200" },
+                      { key: "instagram", label: "Instagram", count: ucPlatformCounts.get("instagram") || 0, active: "bg-pink-50 text-pink-600 border-pink-200" },
+                    ]).filter(({ count }) => count > 0).map(({ key, label, count, active }) => (
+                      <button
+                        key={key}
+                        onClick={() => setUcPlatformFilter(ucPlatformFilter === key ? null : key)}
+                        className={`px-2 py-0.5 text-[11px] rounded-full border transition-colors ${
+                          ucPlatformFilter === key
+                            ? active
+                            : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
+                        }`}
+                      >
+                        {label} ({count})
+                      </button>
+                    ))}
+                    {ucPlatformFilter && (
+                      <button
+                        onClick={() => setUcPlatformFilter(null)}
+                        className="ml-auto text-[11px] text-gray-500 hover:text-gray-700 transition-colors inline-flex items-center gap-0.5"
+                      >
+                        <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        Reset
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <UseCaseTable
+                rows={filteredPivot?.rows ?? []}
+                formatFamilies={filteredPivot?.format_families ?? []}
+                status={filteredPivot?.status ?? "classifying"}
+                onCellClick={handleUseCaseCellClick}
+              />
+            </div>
           )}
           {tab === "gallery" && (
             <PostGallery

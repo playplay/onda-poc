@@ -293,21 +293,21 @@ export default function LibraryPage() {
       <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg bg-white px-2.5 py-0.5">
         <div className="py-1.5">
           <FilterRow
-            label="Sector"
-            options={data.sectors}
-            selected={filterSectors}
-            onToggle={toggle(setFilterSectors)}
-            onClear={() => setFilterSectors(new Set())}
-            chipColor="bg-gray-50 text-gray-700 border-gray-200"
-          />
-        </div>
-        <div className="py-1.5">
-          <FilterRow
             label="Platform"
             options={platforms}
             selected={filterPlatforms}
             onToggle={toggle(setFilterPlatforms)}
             onClear={() => setFilterPlatforms(new Set())}
+            chipColor="bg-gray-50 text-gray-700 border-gray-200"
+          />
+        </div>
+        <div className="py-1.5">
+          <FilterRow
+            label="Sector"
+            options={data.sectors}
+            selected={filterSectors}
+            onToggle={toggle(setFilterSectors)}
+            onClear={() => setFilterSectors(new Set())}
             chipColor="bg-gray-50 text-gray-700 border-gray-200"
           />
         </div>

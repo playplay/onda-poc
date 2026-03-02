@@ -436,7 +436,7 @@ export default function AdminPage() {
         <div>
           <h2 className="text-lg font-semibold text-gray-900">Watched Accounts</h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            LinkedIn company pages and personal profiles tracked per sector.
+            Company and personal profiles tracked per sector.
           </p>
         </div>
         <button
