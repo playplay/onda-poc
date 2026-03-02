@@ -245,7 +245,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
             {([
               { type: "company" as const, label: "Companies", count: accountTypeCounts.company, Icon: BuildingIcon, active: "bg-gray-100 text-gray-700 border-gray-300" },
               { type: "person" as const, label: "Persons", count: accountTypeCounts.person, Icon: PersonIcon, active: "bg-blue-50 text-blue-700 border-blue-200" },
-            ] as const)
+            ])
               .sort((a, b) => b.count - a.count)
               .map(({ type, label, count, Icon, active }) => (
                 <button
