@@ -1,5 +1,6 @@
 import uuid
 from collections import defaultdict
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +25,43 @@ def compute_engagement_rate(
     return (reactions + comments) / follower_count * 100
 
 
+MIN_POST_AGE_HOURS = 48
+
+
+def select_top_posts(
+    items: list[dict],
+    *,
+    posts_to_keep: int,
+    get_date,       # item -> datetime | None
+    get_reactions,  # item -> int
+    get_comments,   # item -> int
+    get_followers,  # item -> int | None
+) -> list[dict]:
+    """Exclude posts < 48h, rank by engagement rate, keep top N."""
+    cutoff = datetime.utcnow() - timedelta(hours=MIN_POST_AGE_HOURS)
+
+    # 1. Filter out posts younger than 48h
+    eligible = []
+    for item in items:
+        pub_date = get_date(item)
+        if pub_date is not None and pub_date > cutoff:
+            continue
+        eligible.append(item)
+
+    # 2. Sort by engagement rate (fallback to engagement_score if no followers)
+    def sort_key(item):
+        reactions = get_reactions(item)
+        comments = get_comments(item)
+        followers = get_followers(item)
+        rate = compute_engagement_rate(reactions, comments, followers)
+        if rate is not None:
+            return (1, rate)
+        return (0, compute_engagement_score(reactions, comments))
+
+    eligible.sort(key=sort_key, reverse=True)
+    return eligible[:posts_to_keep]
+
+
 def get_engagement_level(
     engagement_rate: float | None, follower_count: int | None
 ) -> str:
@@ -41,11 +79,11 @@ def get_engagement_level(
 async def get_top_trends(
     db: AsyncSession, scrape_job_id: uuid.UUID, limit: int = 10
 ) -> list[RankedTrendOut]:
-    """Get top trends grouped by format_family, ordered by avg engagement score."""
+    """Get top trends grouped by format_family, ordered by avg engagement rate."""
     result = await db.execute(
         select(Post)
         .where(Post.scrape_job_id == scrape_job_id)
-        .order_by(Post.engagement_score.desc())
+        .order_by(Post.engagement_rate.desc().nullslast(), Post.engagement_score.desc())
     )
     posts = result.scalars().all()
 
@@ -58,19 +96,20 @@ async def get_top_trends(
     # Build ranked trends
     trends = []
     for family, family_posts in groups.items():
-        avg_score = sum(p.engagement_score for p in family_posts) / len(family_posts)
+        rates = [p.engagement_rate for p in family_posts if p.engagement_rate is not None]
+        avg_rate = sum(rates) / len(rates) if rates else 0.0
         trends.append(
             RankedTrendOut(
                 rank=0,
                 format_family=family,
                 post_count=len(family_posts),
-                avg_engagement_score=round(avg_score, 2),
+                avg_engagement_rate=round(avg_rate, 2),
                 top_posts=[PostOut.model_validate(p) for p in family_posts[:5]],
             )
         )
 
-    # Sort by avg engagement and assign ranks
-    trends.sort(key=lambda t: t.avg_engagement_score, reverse=True)
+    # Sort by avg engagement rate and assign ranks
+    trends.sort(key=lambda t: t.avg_engagement_rate, reverse=True)
     for i, trend in enumerate(trends[:limit]):
         trend.rank = i + 1
 

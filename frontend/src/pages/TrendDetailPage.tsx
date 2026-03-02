@@ -24,7 +24,7 @@ export default function TrendDetailPage() {
     rank: number;
     format_family: string;
     post_count: number;
-    avg_engagement_score: number;
+    avg_engagement_rate: number;
   } | null>(null);
   const [summary, setSummary] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(true);
@@ -91,7 +91,7 @@ export default function TrendDetailPage() {
 
   const avgEng = trendInfo
     ? getEngagementLabel(
-        { engagement_rate: null, author_follower_count: null, engagement_score: trendInfo.avg_engagement_score },
+        { engagement_rate: null, author_follower_count: null, engagement_score: trendInfo.avg_engagement_rate },
         allScores,
       )
     : null;

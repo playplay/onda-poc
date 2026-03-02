@@ -19,8 +19,8 @@ async def list_posts(
     scrape_job_id: uuid.UUID = Query(..., description="Filter by scrape job"),
     sector: str | None = Query(None),
     format_family: str | None = Query(None),
-    sort_by: str = Query("engagement_score", description="Sort field"),
-    limit: int = Query(50, ge=1, le=500),
+    sort_by: str = Query("engagement_rate", description="Sort field"),
+    limit: int = Query(200, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
@@ -32,9 +32,9 @@ async def list_posts(
     if format_family:
         stmt = stmt.where(Post.format_family == format_family)
 
-    # Sorting
-    sort_column = getattr(Post, sort_by, Post.engagement_score)
-    stmt = stmt.order_by(sort_column.desc()).offset(offset).limit(limit)
+    # Sorting: primary by engagement_rate, secondary by engagement_score for posts without rate
+    sort_column = getattr(Post, sort_by, Post.engagement_rate)
+    stmt = stmt.order_by(sort_column.desc().nullslast(), Post.engagement_score.desc()).offset(offset).limit(limit)
 
     result = await db.execute(stmt)
     return result.scalars().all()

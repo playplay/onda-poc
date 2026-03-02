@@ -109,6 +109,17 @@ async def get_use_case_pivot(
     if not all_posts:
         return UseCasePivotResponse(rows=[], format_families=FORMAT_ORDER, status="empty")
 
+    # Deduplicate by post_url (race condition can cause duplicate insertions)
+    seen_urls: set[str] = set()
+    unique_posts: list = []
+    for p in all_posts:
+        if p.post_url and p.post_url in seen_urls:
+            continue
+        if p.post_url:
+            seen_urls.add(p.post_url)
+        unique_posts.append(p)
+    all_posts = unique_posts
+
     classified = [p for p in all_posts if p.claude_use_case]
     if not classified:
         return UseCasePivotResponse(rows=[], format_families=FORMAT_ORDER, status="classifying")

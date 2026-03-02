@@ -114,25 +114,31 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
 
       // If no classifications yet, trigger in background
       if (pivotData.status !== "ready" && uniquePosts.length > 0) {
-        classifyUseCases(id).then(async () => {
-          const [updated, refreshedPosts] = await Promise.all([
-            getUseCasePivot(id),
-            getPosts(id),
-          ]);
-          setUseCasePivot(updated);
-          // Refresh posts so claude_use_case is available for Gallery filter
-          const refreshSeen = new Set<string>();
-          const refreshedUnique = refreshedPosts.filter((p) => {
-            if (!p.post_url || refreshSeen.has(p.post_url)) return false;
-            refreshSeen.add(p.post_url);
-            return true;
+        classifyUseCases(id)
+          .then(async () => {
+            const [updated, refreshedPosts] = await Promise.all([
+              getUseCasePivot(id),
+              getPosts(id),
+            ]);
+            setUseCasePivot(updated);
+            // Refresh posts so claude_use_case is available for Gallery filter
+            const refreshSeen = new Set<string>();
+            const refreshedUnique = refreshedPosts.filter((p) => {
+              if (!p.post_url || refreshSeen.has(p.post_url)) return false;
+              refreshSeen.add(p.post_url);
+              return true;
+            });
+            setPosts(refreshedUnique);
+            if (jobDataCache.has(id)) {
+              const cached = jobDataCache.get(id)!;
+              jobDataCache.set(id, { ...cached, useCasePivot: updated, posts: refreshedUnique });
+            }
+          })
+          .catch((err) => {
+            console.error("Use case classification failed:", err);
+            // Clear cache so next visit retries classification
+            jobDataCache.delete(id);
           });
-          setPosts(refreshedUnique);
-          if (jobDataCache.has(id)) {
-            const cached = jobDataCache.get(id)!;
-            jobDataCache.set(id, { ...cached, useCasePivot: updated, posts: refreshedUnique });
-          }
-        });
       }
     },
     [deriveAnalysisStatus]
@@ -188,10 +194,11 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
     });
   }, [job?.sector]);
 
-  // Load data when job is completed and not cached
+  // Load data when job is completed and not cached (or cache has stale classification)
   useEffect(() => {
     if (!jobId || job?.status !== "completed") return;
-    if (jobDataCache.has(jobId)) return;
+    const cached = jobDataCache.get(jobId);
+    if (cached && cached.useCasePivot?.status === "ready") return;
     loadCompletedData(jobId);
   }, [jobId, job?.status, loadCompletedData]);
 
