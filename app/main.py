@@ -45,6 +45,15 @@ async def ensure_tables(request: Request, call_next):
             await conn.execute(text(
                 "ALTER TABLE posts ADD COLUMN IF NOT EXISTS claude_use_case VARCHAR(200)"
             ))
+            await conn.execute(text(
+                "ALTER TABLE watched_accounts ADD COLUMN IF NOT EXISTS instagram_url TEXT"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE watched_accounts ALTER COLUMN linkedin_url DROP NOT NULL"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE scrape_jobs ADD COLUMN IF NOT EXISTS instagram_snapshot_id TEXT"
+            ))
             # Drop legacy columns removed from the ScrapeJob model
             for col in ("content_type_filter", "is_corporate", "max_results"):
                 await conn.execute(text(

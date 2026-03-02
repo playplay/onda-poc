@@ -42,12 +42,12 @@ function FilterRow({
   }, [open]);
 
   return (
-    <div className="flex items-center gap-3 min-h-[36px]">
+    <div className="flex items-center gap-2 min-h-[28px]">
       {/* Dropdown button — fixed width */}
-      <div className="relative w-[140px] shrink-0" ref={ref}>
+      <div className="relative w-[120px] shrink-0" ref={ref}>
         <button
           onClick={() => options.length > 0 && setOpen(!open)}
-          className={`w-full px-3 py-1.5 text-sm rounded-lg border transition-colors inline-flex items-center justify-between gap-1 ${
+          className={`w-full px-2.5 py-1 text-xs rounded-md border transition-colors inline-flex items-center justify-between gap-1 ${
             options.length === 0
               ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
               : selected.size > 0
@@ -56,19 +56,19 @@ function FilterRow({
           }`}
         >
           <span className="truncate">{label}{selected.size > 0 ? ` (${selected.size})` : ""}</span>
-          <svg className={`w-3.5 h-3.5 shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor">
+          <svg className={`w-3 h-3 shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
           </svg>
         </button>
         {open && (
           <div className="absolute top-full left-0 mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-72 max-h-72 overflow-y-auto">
             {options.map((opt) => (
-              <label key={opt} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm">
+              <label key={opt} className="flex items-center gap-2 px-3 py-1 hover:bg-gray-50 cursor-pointer text-xs">
                 <input
                   type="checkbox"
                   checked={selected.has(opt)}
                   onChange={() => onToggle(opt)}
-                  className="rounded border-gray-300 text-gray-700 focus:ring-gray-400"
+                  className="rounded border-gray-300 text-gray-700 focus:ring-gray-400 w-3 h-3"
                 />
                 <span className="truncate flex-1 capitalize">{opt}</span>
               </label>
@@ -76,7 +76,7 @@ function FilterRow({
             {selected.size > 0 && (
               <button
                 onClick={onClear}
-                className="w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50 border-t border-gray-100"
+                className="w-full text-left px-3 py-1 text-xs text-gray-500 hover:bg-gray-50 border-t border-gray-100"
               >
                 Clear all
               </button>
@@ -86,18 +86,18 @@ function FilterRow({
       </div>
 
       {/* Chips */}
-      <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
+      <div className="flex flex-wrap gap-1 flex-1 min-w-0">
         {Array.from(selected).map((val) => (
           <span
             key={val}
-            className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full border ${chipColor}`}
+            className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[11px] rounded-full border ${chipColor}`}
           >
-            <span className="capitalize truncate max-w-[180px]">{val}</span>
+            <span className="capitalize truncate max-w-[160px]">{val}</span>
             <button
               onClick={() => onToggle(val)}
               className="opacity-50 hover:opacity-100"
             >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -118,6 +118,7 @@ export default function LibraryPage() {
   const [filterSectors, setFilterSectors] = useState<Set<string>>(new Set());
   const [filterFormats, setFilterFormats] = useState<Set<string>>(new Set());
   const [filterUseCases, setFilterUseCases] = useState<Set<string>>(new Set());
+  const [filterPlatforms, setFilterPlatforms] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const cached = getCached();
@@ -143,7 +144,7 @@ export default function LibraryPage() {
       const types = new Map<string, "company" | "person">();
       const slugs = new Set<string>();
       for (const a of accounts) {
-        const match = a.linkedin_url.match(/\/(in|company)\/([^/]+)/);
+        const match = a.linkedin_url?.match(/\/(in|company)\/([^/]+)/);
         const slug = match ? match[2] : "";
         if (!slug) continue;
         names.set(slug, a.name);
@@ -152,6 +153,16 @@ export default function LibraryPage() {
         types.set(a.name, a.type);
         names.set(a.name.toLowerCase(), a.name);
         types.set(a.name.toLowerCase(), a.type);
+        // Map by Instagram username
+        if (a.instagram_url) {
+          const igMatch = a.instagram_url.match(/instagram\.com\/([^/?\s]+)/);
+          if (igMatch) {
+            const igUser = igMatch[1].toLowerCase();
+            names.set(igUser, a.name);
+            types.set(igUser, a.type);
+            if (a.is_playplay_client) slugs.add(igUser);
+          }
+        }
         if (a.is_playplay_client) {
           slugs.add(slug);
           slugs.add(a.name);
@@ -169,6 +180,13 @@ export default function LibraryPage() {
     [data]
   );
 
+  const platforms = useMemo(() => {
+    if (!data) return [];
+    const set = new Set<string>();
+    for (const p of data.posts) set.add(p.platform || "linkedin");
+    return Array.from(set).sort();
+  }, [data]);
+
   const filtered = useMemo(() => {
     if (!data) return [];
     let result = data.posts;
@@ -184,15 +202,19 @@ export default function LibraryPage() {
     if (filterUseCases.size > 0) {
       result = result.filter((p) => p.claude_use_case && filterUseCases.has(p.claude_use_case));
     }
+    if (filterPlatforms.size > 0) {
+      result = result.filter((p) => filterPlatforms.has(p.platform || "linkedin"));
+    }
     return result;
-  }, [data, filterSectors, filterFormats, filterUseCases]);
+  }, [data, filterSectors, filterFormats, filterUseCases, filterPlatforms]);
 
-  const hasActiveFilters = filterSectors.size > 0 || filterFormats.size > 0 || filterUseCases.size > 0;
+  const hasActiveFilters = filterSectors.size > 0 || filterFormats.size > 0 || filterUseCases.size > 0 || filterPlatforms.size > 0;
 
   const resetAllFilters = () => {
     setFilterSectors(new Set());
     setFilterFormats(new Set());
     setFilterUseCases(new Set());
+    setFilterPlatforms(new Set());
   };
 
   const toggle = (setter: React.Dispatch<React.SetStateAction<Set<string>>>) => (val: string) => {
@@ -268,8 +290,8 @@ export default function LibraryPage() {
       </div>
 
       {/* Filter rows — stacked with dividers */}
-      <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg bg-white px-3 py-1">
-        <div className="py-2">
+      <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg bg-white px-2.5 py-0.5">
+        <div className="py-1.5">
           <FilterRow
             label="Sector"
             options={data.sectors}
@@ -279,7 +301,17 @@ export default function LibraryPage() {
             chipColor="bg-gray-50 text-gray-700 border-gray-200"
           />
         </div>
-        <div className="py-2">
+        <div className="py-1.5">
+          <FilterRow
+            label="Platform"
+            options={platforms}
+            selected={filterPlatforms}
+            onToggle={toggle(setFilterPlatforms)}
+            onClear={() => setFilterPlatforms(new Set())}
+            chipColor="bg-gray-50 text-gray-700 border-gray-200"
+          />
+        </div>
+        <div className="py-1.5">
           <FilterRow
             label="Format"
             options={data.format_families}
@@ -289,7 +321,7 @@ export default function LibraryPage() {
             chipColor="bg-gray-50 text-gray-700 border-gray-200"
           />
         </div>
-        <div className="py-2">
+        <div className="py-1.5">
           <FilterRow
             label="Use Case"
             options={data.use_cases}

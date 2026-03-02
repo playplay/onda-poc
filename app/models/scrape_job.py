@@ -22,7 +22,8 @@ class ScrapeJob(Base):
     apify_run_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)  # list of run IDs (one per watched account)
     video_download_run_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     brightdata_snapshot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    scraper_backend: Mapped[str | None] = mapped_column(String(50), nullable=True)  # "apify" | "brightdata" | "brightdata+profile"
+    instagram_snapshot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scraper_backend: Mapped[str | None] = mapped_column(String(50), nullable=True)  # "apify" | "brightdata" | "brightdata+profile+instagram"
     profile_apify_run_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

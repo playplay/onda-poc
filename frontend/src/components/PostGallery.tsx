@@ -22,6 +22,7 @@ interface Props {
 
 export default function PostGallery({ posts, playplaySlugs, accountNames, accountTypes, externalFilterFormat, externalFilterUseCases, onFiltersApplied }: Props) {
   const [filterFormat, setFilterFormat] = useState<string | null>(null);
+  const [filterPlatform, setFilterPlatform] = useState<string | null>(null);
   const [filterPlayPlay, setFilterPlayPlay] = useState(false);
   const [filterAccountType, setFilterAccountType] = useState<"company" | "person" | null>(null);
   const [filterUseCases, setFilterUseCases] = useState<Set<string>>(new Set());
@@ -57,6 +58,17 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
     () => Array.from(formatCounts.entries()).sort((a, b) => b[1] - a[1]).map(([k]) => k),
     [formatCounts]
   );
+
+  const platformCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of posts) {
+      const plat = p.platform || "linkedin";
+      map.set(plat, (map.get(plat) || 0) + 1);
+    }
+    return map;
+  }, [posts]);
+
+  const hasBothPlatforms = platformCounts.size > 1;
 
   const playplayCount = useMemo(
     () => playplaySlugs ? posts.filter((p) => setHas(playplaySlugs, p.author_name || "")).length : 0,
@@ -111,6 +123,9 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
     if (filterFormat) {
       result = result.filter((p) => normalizeFormat(p.format_family) === filterFormat);
     }
+    if (filterPlatform) {
+      result = result.filter((p) => (p.platform || "linkedin") === filterPlatform);
+    }
     if (filterPlayPlay && playplaySlugs) {
       result = result.filter((p) => setHas(playplaySlugs, p.author_name || ""));
     }
@@ -121,16 +136,17 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
       result = result.filter((p) => p.claude_use_case && filterUseCases.has(p.claude_use_case));
     }
     return result;
-  }, [posts, filterFormat, filterPlayPlay, filterAccountType, filterUseCases, playplaySlugs, accountTypes]);
+  }, [posts, filterFormat, filterPlatform, filterPlayPlay, filterAccountType, filterUseCases, playplaySlugs, accountTypes]);
 
   if (posts.length === 0) {
     return <p className="text-gray-400 text-center py-8 text-sm">No posts found.</p>;
   }
 
-  const hasActiveFilters = filterFormat !== null || filterAccountType !== null || filterPlayPlay || filterUseCases.size > 0;
+  const hasActiveFilters = filterFormat !== null || filterPlatform !== null || filterAccountType !== null || filterPlayPlay || filterUseCases.size > 0;
 
   const resetAllFilters = () => {
     setFilterFormat(null);
+    setFilterPlatform(null);
     setFilterAccountType(null);
     setFilterPlayPlay(false);
     setFilterUseCases(new Set());
@@ -139,12 +155,12 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
   return (
     <div className="space-y-4">
       {/* Filter grid — 2 columns: label | tags */}
-      <div className="grid gap-y-2 gap-x-3 items-center" style={{ gridTemplateColumns: "auto 1fr" }}>
+      <div className="grid gap-y-1.5 gap-x-2 items-center" style={{ gridTemplateColumns: "auto 1fr" }}>
         {/* Row 1: Use Cases */}
         <div className="relative" ref={useCaseDropdownRef}>
           <button
             onClick={() => hasUseCases && setUseCaseDropdownOpen(!useCaseDropdownOpen)}
-            className={`px-4 py-1.5 text-sm rounded-lg border transition-colors inline-flex items-center gap-2 ${
+            className={`px-2.5 py-1 text-xs rounded-md border transition-colors inline-flex items-center gap-1.5 ${
               !hasUseCases
                 ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
                 : filterUseCases.size > 0
@@ -152,12 +168,12 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
                   : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
             }`}
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
             </svg>
             Use Cases{filterUseCases.size > 0 ? ` (${filterUseCases.size})` : ""}
-            <svg className={`w-4 h-4 transition-transform ${useCaseDropdownOpen ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor">
+            <svg className={`w-3 h-3 transition-transform ${useCaseDropdownOpen ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
             </svg>
           </button>
@@ -168,7 +184,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
                 .map(([uc, count]) => (
                   <label
                     key={uc}
-                    className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm"
+                    className="flex items-center gap-2 px-3 py-1 hover:bg-gray-50 cursor-pointer text-xs"
                   >
                     <input
                       type="checkbox"
@@ -181,16 +197,16 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
                           return next;
                         });
                       }}
-                      className="rounded border-gray-300 text-gray-700 focus:ring-gray-400"
+                      className="rounded border-gray-300 text-gray-700 focus:ring-gray-400 w-3 h-3"
                     />
                     <span className="truncate flex-1 capitalize">{uc}</span>
-                    <span className="text-gray-400 shrink-0 text-xs">{count}</span>
+                    <span className="text-gray-400 shrink-0 text-[10px]">{count}</span>
                   </label>
                 ))}
               {filterUseCases.size > 0 && (
                 <button
                   onClick={() => setFilterUseCases(new Set())}
-                  className="w-full text-left px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50 border-t border-gray-100"
+                  className="w-full text-left px-3 py-1 text-xs text-gray-500 hover:bg-gray-50 border-t border-gray-100"
                 >
                   Clear use cases
                 </button>
@@ -198,13 +214,13 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
             </div>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           {Array.from(filterUseCases).map((uc) => (
             <span
               key={uc}
-              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-gray-50 text-gray-700 border border-gray-200"
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[11px] rounded-full bg-gray-50 text-gray-700 border border-gray-200"
             >
-              <span className="capitalize truncate max-w-[200px]">{uc}</span>
+              <span className="capitalize truncate max-w-[180px]">{uc}</span>
               <button
                 onClick={() => {
                   setFilterUseCases((prev) => {
@@ -215,7 +231,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
                 }}
                 className="text-gray-400 hover:text-gray-700 ml-0.5"
               >
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -223,13 +239,13 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
           ))}
           <button
             onClick={hasActiveFilters ? resetAllFilters : undefined}
-            className={`ml-auto text-xs transition-colors inline-flex items-center gap-1 ${
+            className={`ml-auto text-[11px] transition-colors inline-flex items-center gap-0.5 ${
               hasActiveFilters
                 ? "text-gray-500 hover:text-gray-700 cursor-pointer"
                 : "text-gray-300 cursor-default"
             }`}
           >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
             Reset filters
@@ -238,10 +254,10 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
 
         {/* Row 2: Account type */}
         {hasAccountTypes && <>
-          <span className="px-4 py-1.5 text-sm rounded-lg border border-gray-200 text-gray-500 inline-flex items-center gap-2">
+          <span className="px-2.5 py-1 text-xs rounded-md border border-gray-200 text-gray-500 inline-flex items-center gap-1.5">
             Account type
           </span>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             {([
               { type: "company" as const, label: "Companies", count: accountTypeCounts.company, Icon: BuildingIcon, active: "bg-gray-100 text-gray-700 border-gray-300" },
               { type: "person" as const, label: "Persons", count: accountTypeCounts.person, Icon: PersonIcon, active: "bg-blue-50 text-blue-700 border-blue-200" },
@@ -251,14 +267,14 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
                 <button
                   key={type}
                   onClick={() => setFilterAccountType(filterAccountType === type ? null : type)}
-                  className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                  className={`px-2 py-0.5 text-[11px] rounded-full border transition-colors ${
                     filterAccountType === type
                       ? active
                       : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
                   }`}
                 >
                   <span className="inline-flex items-center gap-1">
-                    <Icon className="w-3 h-3" />
+                    <Icon className="w-2.5 h-2.5" />
                     {label} ({count})
                   </span>
                 </button>
@@ -266,7 +282,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
             {playplaySlugs && playplaySlugs.size > 0 && (
               <button
                 onClick={() => setFilterPlayPlay(!filterPlayPlay)}
-                className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                className={`px-2 py-0.5 text-[11px] rounded-full border transition-colors ${
                   filterPlayPlay
                     ? "bg-violet-50 text-violet-700 border-violet-200"
                     : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
@@ -278,11 +294,34 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
           </div>
         </>}
 
-        {/* Row 3: Format */}
-        <span className="px-4 py-1.5 text-sm rounded-lg border border-gray-200 text-gray-500 inline-flex items-center gap-2">
+        {/* Row 3: Platform */}
+        <span className="px-2.5 py-1 text-xs rounded-md border border-gray-200 text-gray-500 inline-flex items-center gap-1.5">
+          Platform
+        </span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {([
+            { key: "linkedin", label: "LinkedIn", count: platformCounts.get("linkedin") || 0, active: "bg-blue-50 text-blue-700 border-blue-200" },
+            { key: "instagram", label: "Instagram", count: platformCounts.get("instagram") || 0, active: "bg-pink-50 text-pink-600 border-pink-200" },
+          ]).filter(({ count }) => count > 0).map(({ key, label, count, active }) => (
+            <button
+              key={key}
+              onClick={() => setFilterPlatform(filterPlatform === key ? null : key)}
+              className={`px-2 py-0.5 text-[11px] rounded-full border transition-colors ${
+                filterPlatform === key
+                  ? active
+                  : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
+              }`}
+            >
+              {label} ({count})
+            </button>
+          ))}
+        </div>
+
+        {/* Row 4: Format */}
+        <span className="px-2.5 py-1 text-xs rounded-md border border-gray-200 text-gray-500 inline-flex items-center gap-1.5">
           Format
         </span>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           {formats.map((fmt) => {
             const style = getFormatStyle(fmt);
             const active = filterFormat === fmt;
@@ -290,7 +329,7 @@ export default function PostGallery({ posts, playplaySlugs, accountNames, accoun
               <button
                 key={fmt}
                 onClick={() => setFilterFormat(active ? null : fmt)}
-                className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                className={`px-2 py-0.5 text-[11px] rounded-full border transition-colors ${
                   active
                     ? `${style.bg} ${style.text} ${style.border}`
                     : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"

@@ -104,6 +104,17 @@ async def trigger_scrape(
             "APIFY_TOKEN not configured"
         )
 
+    # Instagram scrape: Bright Data Profiles Scraper
+    instagram_accounts = [a for a in accounts if a.instagram_url]
+    if instagram_accounts and settings.API_BRIGHT_DATA:
+        from app.services.instagram_scraper import start_scrape as ig_start
+        try:
+            await ig_start(db, job, instagram_accounts)
+            if job.instagram_snapshot_id:
+                backends.append("instagram")
+        except Exception as e:
+            logger.warning(f"Failed to start Instagram scrape: {e}")
+
     # If BD failed but person scrape started, store BD error as warning
     if bd_error and backends:
         job.error_message = f"[Bright Data failed: {bd_error}]"
@@ -188,16 +199,22 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
             from app.services.apify_profile_scraper import check_profile_scrape
             profile_status = await check_profile_scrape(job.profile_apify_run_ids)
 
+        # Check Instagram status
+        ig_status = "ready"
+        if "instagram" in backends and job.instagram_snapshot_id:
+            from app.services.instagram_scraper import check_scrape_ready as ig_check
+            ig_status = await ig_check(job)
+
         # If any failed → mark job failed
-        if bd_status == "failed" or profile_status == "failed":
+        if bd_status == "failed" or profile_status == "failed" or ig_status == "failed":
             job.status = "failed"
-            job.error_message = f"Backend failure: brightdata={bd_status}, profile={profile_status}"
+            job.error_message = f"Backend failure: brightdata={bd_status}, profile={profile_status}, instagram={ig_status}"
             job.completed_at = datetime.utcnow()
             await db.commit()
             return
 
         # If any still running → return early
-        if bd_status == "running" or profile_status == "running":
+        if bd_status == "running" or profile_status == "running" or ig_status == "running":
             return
 
         # All ready — lock job row to prevent concurrent insertion
@@ -266,6 +283,11 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
             )
             all_posts.extend(profile_posts)
 
+        if "instagram" in backends and job.instagram_snapshot_id:
+            from app.services.instagram_scraper import fetch_and_process_results as ig_fetch
+            ig_posts = await ig_fetch(db, job)
+            all_posts.extend(ig_posts)
+
         # Update follower_count on watched accounts from the most recent post data
         await _update_account_followers(db, job.sector, all_posts)
 
@@ -298,6 +320,10 @@ async def _update_account_followers(
         match = re.search(r"/(in|company)/([^/]+)", a.linkedin_url)
         if match:
             slug_to_account[match.group(2).lower()] = a
+        if a.instagram_url:
+            ig_match = re.search(r"instagram\.com/([^/]+)", a.instagram_url)
+            if ig_match:
+                slug_to_account[ig_match.group(1).lower()] = a
 
     # Update from post author_follower_count (take the max per account)
     for post in posts:

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   getAccounts,
   createAccount,
@@ -21,7 +21,8 @@ function sortAccounts(list: WatchedAccount[]): WatchedAccount[] {
 const EMPTY_FORM: WatchedAccountCreate = {
   name: "",
   type: "company",
-  linkedin_url: "",
+  linkedin_url: null,
+  instagram_url: null,
   sector: "",
   company_name: null,
   is_playplay_client: false,
@@ -31,8 +32,12 @@ export default function AdminPage() {
   const [accounts, setAccounts] = useState<WatchedAccount[]>(
     accountsCache ?? []
   );
+  const [filterType, setFilterType] = useState<string>("");
   const [filterSector, setFilterSector] = useState("");
-  const [filterPlayPlay, setFilterPlayPlay] = useState<boolean | null>(null);
+  const [filterPlayPlay, setFilterPlayPlay] = useState<string>("");
+  const [filterPlatform, setFilterPlatform] = useState<string>("");
+  const [filterName, setFilterName] = useState("");
+  const [openFilter, setOpenFilter] = useState<string | null>(null);
   // Only show loading spinner if we have no cached data
   const [loading, setLoading] = useState(accountsCache === null);
   const [error, setError] = useState<string | null>(null);
@@ -51,11 +56,26 @@ export default function AdminPage() {
     (a) => a.type === "company" && a.sector === form.sector
   );
 
+  const hasFilters = !!(filterType || filterSector || filterPlayPlay || filterPlatform || filterName);
+
   const base = accounts.filter((a) => {
+    if (filterType && a.type !== filterType) return false;
     if (filterSector && a.sector !== filterSector) return false;
-    if (filterPlayPlay !== null && a.is_playplay_client !== filterPlayPlay) return false;
+    if (filterPlayPlay === "yes" && !a.is_playplay_client) return false;
+    if (filterPlayPlay === "no" && a.is_playplay_client) return false;
+    if (filterPlatform === "linkedin" && !a.linkedin_url) return false;
+    if (filterPlatform === "instagram" && !a.instagram_url) return false;
+    if (filterName && !a.name.toLowerCase().includes(filterName.toLowerCase())) return false;
     return true;
   });
+
+  function resetFilters() {
+    setFilterType("");
+    setFilterSector("");
+    setFilterPlayPlay("");
+    setFilterPlatform("");
+    setFilterName("");
+  }
 
   function applyAndCache(list: WatchedAccount[]) {
     const sorted = sortAccounts(list);
@@ -88,6 +108,7 @@ export default function AdminPage() {
       name: account.name,
       type: account.type,
       linkedin_url: account.linkedin_url,
+      instagram_url: account.instagram_url,
       sector: account.sector,
       company_name: account.company_name,
       is_playplay_client: account.is_playplay_client,
@@ -107,8 +128,12 @@ export default function AdminPage() {
   }
 
   async function handleSave() {
-    if (!form.name || !form.linkedin_url || !form.sector) {
-      setFormError("All fields are required.");
+    if (!form.name || !form.sector) {
+      setFormError("Name and sector are required.");
+      return;
+    }
+    if (!form.linkedin_url && !form.instagram_url) {
+      setFormError("At least one URL (LinkedIn or Instagram) is required.");
       return;
     }
     if (form.type === "person" && !form.company_name) {
@@ -129,6 +154,8 @@ export default function AdminPage() {
         created_at: "",
         is_playplay_client: false,
         ...payload,
+        linkedin_url: payload.linkedin_url ?? null,
+        instagram_url: payload.instagram_url ?? null,
         company_name: payload.company_name ?? null,
       };
       applyAndCache(accounts.map((a) => (a.id === editingId ? optimistic : a)));
@@ -147,6 +174,8 @@ export default function AdminPage() {
         created_at: new Date().toISOString(),
         is_playplay_client: false,
         ...payload,
+        linkedin_url: payload.linkedin_url ?? null,
+        instagram_url: payload.instagram_url ?? null,
         company_name: payload.company_name ?? null,
       };
       applyAndCache([...accounts, optimistic]);
@@ -174,24 +203,145 @@ export default function AdminPage() {
     }
   }
 
+  const LinkedInIcon = () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+    </svg>
+  );
+
+  const InstagramIcon = () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/>
+    </svg>
+  );
+
+  const ChevronIcon = ({ active }: { active: boolean }) => (
+    <svg
+      width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor"
+      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+      className={`ml-1 transition-colors ${active ? "text-violet-600" : "text-gray-400"}`}
+    >
+      <path d="M2.5 3.75L5 6.25L7.5 3.75" />
+    </svg>
+  );
+
+  function FilterableHeader({
+    label, column, options, activeValue, onSelect, showSearch, searchOnly,
+  }: {
+    label: string;
+    column: string;
+    options: { value: string; label: string }[];
+    activeValue: string;
+    onSelect: (v: string) => void;
+    showSearch?: boolean;
+    searchOnly?: boolean;
+  }) {
+    const ref = useRef<HTMLTableHeaderCellElement>(null);
+    const [search, setSearch] = useState("");
+    const isOpen = openFilter === column;
+    const isActive = !!activeValue;
+
+    useEffect(() => {
+      function handleClick(e: MouseEvent) {
+        if (ref.current && !ref.current.contains(e.target as Node)) {
+          setOpenFilter(null);
+          setSearch("");
+        }
+      }
+      if (isOpen) document.addEventListener("mousedown", handleClick);
+      return () => document.removeEventListener("mousedown", handleClick);
+    }, [isOpen]);
+
+    const filtered = showSearch && search
+      ? options.filter((o) => o.label.toLowerCase().includes(search.toLowerCase()))
+      : options;
+
+    return (
+      <th className="text-left px-4 py-2 font-medium text-gray-600 relative" ref={ref}>
+        <button
+          onClick={() => { setOpenFilter(isOpen ? null : column); setSearch(""); }}
+          className={`inline-flex items-center gap-0.5 hover:text-gray-900 transition-colors ${
+            isActive ? "text-violet-600 font-semibold" : ""
+          }`}
+        >
+          {label}
+          <ChevronIcon active={isActive} />
+        </button>
+        {isOpen && (
+          <div className="absolute top-full left-2 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[180px] py-1">
+            {searchOnly ? (
+              <div className="px-2 py-1.5">
+                <input
+                  type="text"
+                  value={activeValue}
+                  onChange={(e) => onSelect(e.target.value)}
+                  placeholder="Type to filter…"
+                  autoFocus
+                  className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-300"
+                />
+                {activeValue && (
+                  <button
+                    onClick={() => { onSelect(""); setOpenFilter(null); }}
+                    className="mt-1 text-xs text-gray-400 hover:text-gray-600"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            ) : (
+              <>
+                {showSearch && (
+                  <div className="px-2 py-1.5">
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search…"
+                      autoFocus
+                      className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-300"
+                    />
+                  </div>
+                )}
+                <button
+                  onClick={() => { onSelect(""); setOpenFilter(null); setSearch(""); }}
+                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 ${
+                    !activeValue ? "text-violet-600 font-medium" : "text-gray-500"
+                  }`}
+                >
+                  All
+                </button>
+                <div className="max-h-[240px] overflow-y-auto">
+                  {filtered.map((o) => (
+                    <button
+                      key={o.value}
+                      onClick={() => { onSelect(o.value); setOpenFilter(null); setSearch(""); }}
+                      className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 ${
+                        activeValue === o.value ? "text-violet-600 font-medium bg-violet-50" : "text-gray-700"
+                      }`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </th>
+    );
+  }
+
   const AccountRow = ({ account }: { account: WatchedAccount }) => (
     <tr className="border-t border-gray-100 hover:bg-gray-50 h-14">
       <td className="px-4 py-2 align-middle">
-        <a
-          href={account.linkedin_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="group"
-        >
-          <div className="font-medium text-gray-900 group-hover:text-violet-700 transition-colors">
-            {account.name}
+        <div className="font-medium text-gray-900">
+          {account.name}
+        </div>
+        {account.type === "person" && account.company_name && (
+          <div className="text-gray-400 text-xs mt-0.5">
+            {account.company_name}
           </div>
-          {account.type === "person" && account.company_name && (
-            <div className="text-gray-400 text-xs mt-0.5">
-              {account.company_name}
-            </div>
-          )}
-        </a>
+        )}
       </td>
       <td className="px-4 py-2 align-middle">
         <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
@@ -201,6 +351,40 @@ export default function AdminPage() {
         }`}>
           {account.type === "person" ? "Person" : "Company"}
         </span>
+      </td>
+      <td className="px-4 py-2 align-middle">
+        <div className="flex items-center gap-2">
+          {account.linkedin_url ? (
+            <a
+              href={account.linkedin_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={account.linkedin_url}
+              className="text-[#0A66C2] hover:text-[#004182] transition-colors"
+            >
+              <LinkedInIcon />
+            </a>
+          ) : (
+            <span className="text-gray-200">
+              <LinkedInIcon />
+            </span>
+          )}
+          {account.instagram_url ? (
+            <a
+              href={account.instagram_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={account.instagram_url}
+              className="text-[#E4405F] hover:text-[#C13584] transition-colors"
+            >
+              <InstagramIcon />
+            </a>
+          ) : (
+            <span className="text-gray-200">
+              <InstagramIcon />
+            </span>
+          )}
+        </div>
       </td>
       <td className="px-4 py-2 align-middle text-gray-600">{account.sector}</td>
       <td className="px-4 py-2 align-middle">
@@ -267,51 +451,89 @@ export default function AdminPage() {
         <div className="mb-4 p-3 bg-red-50 text-red-700 rounded text-sm">{error}</div>
       )}
 
-      {sectors.length > 0 && (
-        <div className="mb-4 flex items-center gap-3">
-          <select
-            value={filterSector}
-            onChange={(e) => setFilterSector(e.target.value)}
-            className="border border-gray-200 rounded-md px-3 py-1.5 text-sm"
-          >
-            <option value="">All sectors</option>
-            {sectors.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-          <button
-            onClick={() => setFilterPlayPlay((prev) => (prev === true ? null : true))}
-            className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
-              filterPlayPlay === true
-                ? "bg-green-50 text-green-700 border-green-200"
-                : "text-gray-600 border-gray-200 hover:border-gray-400"
-            }`}
-          >
-            PlayPlay Client only
-          </button>
-        </div>
-      )}
-
       {loading ? (
         <p className="text-sm text-gray-400">Loading…</p>
-      ) : base.length === 0 ? (
+      ) : accounts.length === 0 ? (
         <p className="text-sm text-gray-400">
           No accounts yet. Click "+ Add Account" to get started.
         </p>
       ) : (
-        <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <div className="border border-gray-200 rounded-lg overflow-visible">
+          {hasFilters && (
+            <div className="flex items-center justify-between px-4 py-2 bg-violet-50 border-b border-violet-100 rounded-t-lg">
+              <span className="text-xs text-violet-600">
+                {base.length} of {accounts.length} accounts
+              </span>
+              <button
+                onClick={resetFilters}
+                className="text-xs text-violet-600 hover:text-violet-800 font-medium transition-colors"
+              >
+                Reset filters
+              </button>
+            </div>
+          )}
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Name</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Type</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">Sector</th>
-                <th className="text-left px-4 py-2 font-medium text-gray-600">PlayPlay Client?</th>
+                <FilterableHeader
+                  label="Name"
+                  column="name"
+                  options={[]}
+                  activeValue={filterName}
+                  onSelect={setFilterName}
+                  searchOnly
+                />
+                <FilterableHeader
+                  label="Type"
+                  column="type"
+                  options={[
+                    { value: "company", label: "Company" },
+                    { value: "person", label: "Person" },
+                  ]}
+                  activeValue={filterType}
+                  onSelect={setFilterType}
+                />
+                <FilterableHeader
+                  label="Platforms"
+                  column="platform"
+                  options={[
+                    { value: "linkedin", label: "LinkedIn" },
+                    { value: "instagram", label: "Instagram" },
+                  ]}
+                  activeValue={filterPlatform}
+                  onSelect={setFilterPlatform}
+                />
+                <FilterableHeader
+                  label="Sector"
+                  column="sector"
+                  options={sectors.map((s) => ({ value: s, label: s }))}
+                  activeValue={filterSector}
+                  onSelect={setFilterSector}
+                  showSearch
+                />
+                <FilterableHeader
+                  label="PlayPlay Client?"
+                  column="playplay"
+                  options={[
+                    { value: "yes", label: "Yes" },
+                    { value: "no", label: "No" },
+                  ]}
+                  activeValue={filterPlayPlay}
+                  onSelect={setFilterPlayPlay}
+                />
                 <th className="px-4 py-2"></th>
               </tr>
             </thead>
             <tbody>
-              {base.map((a) => <AccountRow key={a.id} account={a} />)}
+              {base.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">
+                    No accounts match the current filters.
+                  </td>
+                </tr>
+              ) : (
+                base.map((a) => <AccountRow key={a.id} account={a} />)
+              )}
             </tbody>
           </table>
         </div>
@@ -459,15 +681,30 @@ export default function AdminPage() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">LinkedIn URL *</label>
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  LinkedIn URL {!form.instagram_url && <span className="text-gray-400 font-normal">(at least one URL required)</span>}
+                </label>
                 <input
                   type="url"
-                  value={form.linkedin_url}
-                  onChange={(e) => setForm({ ...form, linkedin_url: e.target.value })}
+                  value={form.linkedin_url ?? ""}
+                  onChange={(e) => setForm({ ...form, linkedin_url: e.target.value || null })}
                   placeholder={form.type === "person"
                     ? "https://www.linkedin.com/in/thibautmachet"
                     : "https://www.linkedin.com/company/playplay"
                   }
+                  className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  Instagram URL {!form.linkedin_url && <span className="text-gray-400 font-normal">(at least one URL required)</span>}
+                </label>
+                <input
+                  type="url"
+                  value={form.instagram_url ?? ""}
+                  onChange={(e) => setForm({ ...form, instagram_url: e.target.value || null })}
+                  placeholder="https://www.instagram.com/playplay.video"
                   className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
                 />
               </div>

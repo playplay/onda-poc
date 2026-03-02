@@ -6,7 +6,8 @@ export interface WatchedAccount {
   id: string;
   name: string;
   type: "company" | "person";
-  linkedin_url: string;
+  linkedin_url: string | null;
+  instagram_url: string | null;
   sector: string;
   company_name: string | null;
   is_playplay_client: boolean;
@@ -16,7 +17,8 @@ export interface WatchedAccount {
 export interface WatchedAccountCreate {
   name: string;
   type: "company" | "person";
-  linkedin_url: string;
+  linkedin_url?: string | null;
+  instagram_url?: string | null;
   sector: string;
   company_name?: string | null;
   is_playplay_client?: boolean;
@@ -25,7 +27,8 @@ export interface WatchedAccountCreate {
 export interface WatchedAccountUpdate {
   name?: string;
   type?: "company" | "person";
-  linkedin_url?: string;
+  linkedin_url?: string | null;
+  instagram_url?: string | null;
   sector?: string;
   company_name?: string | null;
   is_playplay_client?: boolean;

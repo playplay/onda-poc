@@ -117,7 +117,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
       const slugs = new Set<string>();
       const types = new Map<string, "company" | "person">();
       for (const a of accounts) {
-        const match = a.linkedin_url.match(/\/(in|company)\/([^/]+)/);
+        const match = a.linkedin_url?.match(/\/(in|company)\/([^/]+)/);
         const slug = match ? match[2] : "";
         if (!slug) continue;
         // Map by slug (companies + new person scrapes use slug as author_name)
@@ -129,6 +129,16 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
         // Case-insensitive fallback for name mismatches (e.g. "Antoine le Nel" vs "Antoine Le Nel")
         names.set(a.name.toLowerCase(), a.name);
         types.set(a.name.toLowerCase(), a.type);
+        // Map by Instagram username (IG posts use username as author_name)
+        if (a.instagram_url) {
+          const igMatch = a.instagram_url.match(/instagram\.com\/([^/?\s]+)/);
+          if (igMatch) {
+            const igUser = igMatch[1].toLowerCase();
+            names.set(igUser, a.name);
+            types.set(igUser, a.type);
+            if (a.is_playplay_client) slugs.add(igUser);
+          }
+        }
         if (a.is_playplay_client) {
           slugs.add(slug);
           slugs.add(a.name);
