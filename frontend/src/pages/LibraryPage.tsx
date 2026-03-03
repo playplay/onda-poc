@@ -232,7 +232,7 @@ export default function LibraryPage() {
                     <p>10k&ndash;100k &rarr; Viral &gt; 3% &middot; Engaging &ge; 1%</p>
                     <p>&lt; 10k &rarr; Viral &gt; 5% &middot; Engaging &ge; 2%</p>
                   </div>
-                  <p className="text-gray-500">Top 10 per format + Top 10 per use case.</p>
+                  <p className="text-gray-500">Top 10 per sector, format, use case and platform.</p>
                   <p className="text-gray-500">Posts without follower data are excluded.</p>
                 </div>
               </div>

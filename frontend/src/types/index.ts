@@ -268,4 +268,5 @@ export interface LibraryResponse {
   sectors: string[];
   format_families: string[];
   use_cases: string[];
+  platforms: string[];
 }
