@@ -107,10 +107,10 @@ export default function App() {
       });
   }, [user]);
 
-  // Fetch jobs on navigation
+  // Fetch jobs on mount (polling + explicit calls keep them fresh)
   useEffect(() => {
     refreshJobs();
-  }, [pathname, refreshJobs]);
+  }, [refreshJobs]);
 
   // Poll while any job is in progress
   useEffect(() => {

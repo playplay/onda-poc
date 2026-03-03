@@ -1,4 +1,4 @@
-import { LinkedInIcon, InstagramIcon, TikTokIcon } from "./PostCard";
+import { LinkedInIcon, InstagramIcon, TikTokIcon } from "./icons";
 
 export type PlatformFilterValue = "all" | "linkedin" | "instagram" | "tiktok";
 

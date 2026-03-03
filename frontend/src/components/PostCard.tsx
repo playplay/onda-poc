@@ -5,22 +5,10 @@ import { shortUseCaseName } from "../utils/useCase";
 import { mapLookup, setHas } from "../utils/maps";
 import { PersonIcon, BuildingIcon, LinkedInIcon, InstagramIcon, TikTokIcon } from "./icons";
 
-// Re-exports so existing imports from PostCard keep working
-export { FORMAT_COLORS, normalizeFormat, getFormatStyle, FORMAT_LABELS, formatLabel } from "../utils/format";
-export { shortUseCaseName } from "../utils/useCase";
-export { mapLookup, setHas } from "../utils/maps";
-export { PersonIcon, BuildingIcon, LinkedInIcon, InstagramIcon, TikTokIcon } from "./icons";
-
-export function isVideoPost(post: Post) {
+function isVideoPost(post: Post) {
   if (post.video_url) return true;
   return normalizeFormat(post.format_family) === "video";
 }
-
-export function computeEngagement(post: Post) {
-  return post.reactions + post.comments * 3;
-}
-
-// --- PostCard component ---
 
 interface PostCardProps {
   post: Post;
@@ -78,7 +66,7 @@ export default function PostCard({ post, allScores, accountTypes, accountNames, 
         <div className="flex items-center justify-between mt-1">
           {showSector && post.sector ? (
             <p className="text-[10px] text-gray-400 truncate">{post.sector}</p>
-          ) : <span />}
+          ) : null}
           {showUseCase && post.claude_use_case && (
             <span className="text-[10px] text-gray-400 shrink-0 truncate max-w-[140px]">
               <span className="opacity-50">&#x25CE;</span> {shortUseCaseName(post.claude_use_case)}

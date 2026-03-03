@@ -7,13 +7,16 @@ import {
   getUseCasePivot,
   classifyUseCases,
 } from "../api/client";
-import type { ScrapeJob, Post, UseCasePivotResponse, UseCasePivotRow } from "../types";
+import type { ScrapeJob, Post, UseCasePivotResponse } from "../types";
 import PostGallery from "../components/PostGallery";
-import UseCaseTable from "../components/UseCaseTable";
 import PostTable from "../components/PostTable";
-import PlatformToggle, { type PlatformFilterValue } from "../components/PlatformToggle";
 import FilterDropdown from "../components/FilterDropdown";
-import { normalizeFormat, mapLookup, setHas } from "../components/PostCard";
+import ViewSwitch from "../components/ViewSwitch";
+import { normalizeFormat, formatLabel } from "../utils/format";
+import { shortUseCaseName } from "../utils/useCase";
+import { mapLookup, setHas } from "../utils/maps";
+import { getEngagementPriority } from "../utils/engagement";
+import { buildAccountMaps } from "../utils/accounts";
 
 // Module-level cache for completed job data — survives re-mounts
 const jobDataCache = new Map<
@@ -23,6 +26,7 @@ const jobDataCache = new Map<
     useCasePivot?: UseCasePivotResponse;
     accountNames: Map<string, string>;
     accountTypes: Map<string, "company" | "person">;
+    companyNames: Map<string, string>;
     playplaySlugs: Set<string>;
   }
 >();
@@ -30,55 +34,17 @@ const jobDataCache = new Map<
 // Sector-level accounts cache — shared across jobs of same sector
 const accountsCache = new Map<
   string,
-  { names: Map<string, string>; types: Map<string, "company" | "person">; slugs: Set<string> }
+  { names: Map<string, string>; types: Map<string, "company" | "person">; companyNames: Map<string, string>; slugs: Set<string> }
 >();
-
-function buildAccountMaps(accounts: { name: string; type: "company" | "person"; linkedin_url?: string | null; instagram_url?: string | null; tiktok_url?: string | null; is_playplay_client?: boolean }[]) {
-  const names = new Map<string, string>();
-  const types = new Map<string, "company" | "person">();
-  const slugs = new Set<string>();
-  for (const a of accounts) {
-    const match = a.linkedin_url?.match(/\/(in|company)\/([^/]+)/);
-    const slug = match ? match[2] : "";
-    if (slug) {
-      names.set(slug, a.name);
-      types.set(slug, a.type);
-    }
-    names.set(a.name, a.name);
-    types.set(a.name, a.type);
-    names.set(a.name.toLowerCase(), a.name);
-    types.set(a.name.toLowerCase(), a.type);
-    if (a.instagram_url) {
-      const igMatch = a.instagram_url.match(/instagram\.com\/([^/?\s]+)/);
-      if (igMatch) {
-        const igUser = igMatch[1].toLowerCase();
-        names.set(igUser, a.name);
-        types.set(igUser, a.type);
-        if (a.is_playplay_client) slugs.add(igUser);
-      }
-    }
-    if (a.tiktok_url) {
-      const ttMatch = a.tiktok_url.match(/tiktok\.com\/@([^/?\s]+)/);
-      if (ttMatch) {
-        const ttUser = ttMatch[1].toLowerCase();
-        names.set(ttUser, a.name);
-        types.set(ttUser, a.type);
-        if (a.is_playplay_client) slugs.add(ttUser);
-      }
-    }
-    if (a.is_playplay_client) {
-      if (slug) slugs.add(slug);
-      slugs.add(a.name);
-      slugs.add(a.name.toLowerCase());
-    }
-  }
-  return { names, types, slugs };
-}
 
 interface Props {
   jobs: ScrapeJob[];
   refreshJobs: () => Promise<void>;
 }
+
+const PLATFORM_OPTIONS = ["linkedin", "instagram", "tiktok"];
+const platformDisplayFn = (v: string) => v.charAt(0).toUpperCase() + v.slice(1);
+const accountDisplayFn = (v: string) => v === "company" ? "Companies" : v === "person" ? "Persons" : "PlayPlay Client";
 
 export default function ResultsPage({ jobs, refreshJobs }: Props) {
   const { jobId } = useParams<{ jobId: string }>();
@@ -90,17 +56,31 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
   );
 
   const [posts, setPosts] = useState<Post[]>([]);
-  const [tab, setTab] = useState<"gallery" | "table" | "usecases">("gallery");
+  const [viewMode, setViewMode] = useState<"gallery" | "table">("gallery");
   const [useCasePivot, setUseCasePivot] = useState<UseCasePivotResponse | null>(null);
 
-  // Gallery filters set from UseCaseTable navigation
-  const [galleryFilterFormat, setGalleryFilterFormat] = useState<string | null>(null);
-  const [galleryFilterUseCases, setGalleryFilterUseCases] = useState<Set<string>>(new Set());
-  const [platformFilter, setPlatformFilter] = useState<PlatformFilterValue>("all");
-  const [ucAccountFilter, setUcAccountFilter] = useState<Set<string>>(new Set());
+  // Shared filter state
+  const [filterPlatforms, setFilterPlatforms] = useState<Set<string>>(new Set());
+  const [filterFormats, setFilterFormats] = useState<Set<string>>(new Set());
+  const [filterUseCases, setFilterUseCases] = useState<Set<string>>(new Set());
+  const [filterAccountType, setFilterAccountType] = useState<Set<string>>(new Set());
+
   const [playplaySlugs, setPlayplaySlugs] = useState<Set<string>>(new Set());
   const [accountNames, setAccountNames] = useState<Map<string, string>>(new Map());
   const [accountTypes, setAccountTypes] = useState<Map<string, "company" | "person">>(new Map());
+  const [companyNames, setCompanyNames] = useState<Map<string, string>>(new Map());
+
+  const toggle = useCallback(
+    (setter: React.Dispatch<React.SetStateAction<Set<string>>>) => (val: string) => {
+      setter((prev) => {
+        const next = new Set(prev);
+        if (next.has(val)) next.delete(val);
+        else next.add(val);
+        return next;
+      });
+    },
+    []
+  );
 
   // Load completed job data (posts + pivot + accounts — all together)
   const loadCompletedData = useCallback(
@@ -113,7 +93,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
             accountsCache.set(sector!, built);
             return built;
           })
-        : Promise.resolve(accts || { names: new Map<string, string>(), types: new Map<string, "company" | "person">(), slugs: new Set<string>() });
+        : Promise.resolve(accts || { names: new Map<string, string>(), types: new Map<string, "company" | "person">(), companyNames: new Map<string, string>(), slugs: new Set<string>() });
 
       const [postsData, pivotData, acctData] = await Promise.all([
         getPosts(id),
@@ -134,6 +114,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
       setUseCasePivot(pivotData);
       setAccountNames(acctData.names);
       setAccountTypes(acctData.types);
+      setCompanyNames(acctData.companyNames);
       setPlayplaySlugs(acctData.slugs);
 
       // Populate cache
@@ -142,6 +123,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
         useCasePivot: pivotData,
         accountNames: acctData.names,
         accountTypes: acctData.types,
+        companyNames: acctData.companyNames,
         playplaySlugs: acctData.slugs,
       });
 
@@ -183,6 +165,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
       setUseCasePivot(cached.useCasePivot ?? null);
       setAccountNames(cached.accountNames);
       setAccountTypes(cached.accountTypes);
+      setCompanyNames(cached.companyNames);
       setPlayplaySlugs(cached.playplaySlugs);
     } else {
       setPosts([]);
@@ -190,11 +173,35 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
     }
   }, [jobId]);
 
-  // Load data when job is completed and not cached (or cache has stale classification)
+  // Load data when job is completed — show cached posts instantly, classify in background
   useEffect(() => {
     if (!jobId || job?.status !== "completed") return;
     const cached = jobDataCache.get(jobId);
-    if (cached && cached.useCasePivot?.status === "ready") return;
+    if (cached) {
+      if (cached.useCasePivot?.status !== "ready" && cached.posts.length > 0) {
+        classifyUseCases(jobId)
+          .then(async () => {
+            const [updated, refreshedPosts] = await Promise.all([
+              getUseCasePivot(jobId),
+              getPosts(jobId),
+            ]);
+            setUseCasePivot(updated);
+            const seen = new Set<string>();
+            const uniquePosts = refreshedPosts.filter((p) => {
+              if (!p.post_url || seen.has(p.post_url)) return false;
+              seen.add(p.post_url);
+              return true;
+            });
+            setPosts(uniquePosts);
+            jobDataCache.set(jobId, { ...cached, useCasePivot: updated, posts: uniquePosts });
+          })
+          .catch((err) => {
+            console.error("Use case classification failed:", err);
+            jobDataCache.delete(jobId);
+          });
+      }
+      return;
+    }
     loadCompletedData(jobId, job?.sector ?? null);
   }, [jobId, job?.status, job?.sector, loadCompletedData]);
 
@@ -212,18 +219,51 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
     return () => clearInterval(interval);
   }, [jobId, job?.status, refreshJobs]);
 
-  // Platform counts for toggle
-  const platformCounts = useMemo(() => {
-    const map = { linkedin: 0, instagram: 0, tiktok: 0 };
+  // Platform counts
+  const platformCountMap = useMemo(() => {
+    const map = new Map<string, number>();
     for (const p of posts) {
-      const plat = (p.platform || "linkedin") as "linkedin" | "instagram" | "tiktok";
-      if (plat in map) map[plat]++;
+      const plat = p.platform || "linkedin";
+      map.set(plat, (map.get(plat) || 0) + 1);
     }
     return map;
   }, [posts]);
 
-  // Account type options & counts for the Use Cases tab filter
-  const ucAccountOptions = useMemo(() => {
+  const allScores = useMemo(() => posts.map((p) => p.engagement_score), [posts]);
+
+  // Format counts & options
+  const formatCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of posts) {
+      const fmt = normalizeFormat(p.format_family);
+      if (fmt) map.set(fmt, (map.get(fmt) || 0) + 1);
+    }
+    return map;
+  }, [posts]);
+
+  const formatOptions = useMemo(
+    () => Array.from(formatCounts.entries()).sort((a, b) => b[1] - a[1]).map(([k]) => k),
+    [formatCounts]
+  );
+
+  // Use case counts & options
+  const useCaseCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of posts) {
+      if (p.claude_use_case) {
+        map.set(p.claude_use_case, (map.get(p.claude_use_case) || 0) + 1);
+      }
+    }
+    return map;
+  }, [posts]);
+
+  const useCaseOptions = useMemo(
+    () => Array.from(useCaseCounts.keys()),
+    [useCaseCounts]
+  );
+
+  // Account type counts & options
+  const accountTypeCounts = useMemo(() => {
     const counts = { company: 0, person: 0, playplay: 0 };
     for (const p of posts) {
       const t = mapLookup(accountTypes, p.author_name || "");
@@ -231,33 +271,44 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
       else if (t === "person") counts.person++;
       if (setHas(playplaySlugs, p.author_name || "")) counts.playplay++;
     }
-    const opts: string[] = [];
-    if (counts.company > 0) opts.push("company");
-    if (counts.person > 0) opts.push("person");
-    if (counts.playplay > 0) opts.push("playplay");
-    return { opts, counts };
+    return counts;
   }, [posts, accountTypes, playplaySlugs]);
 
-  const ucAccountCountMap = useMemo(() => {
-    const map = new Map<string, number>();
-    map.set("company", ucAccountOptions.counts.company);
-    map.set("person", ucAccountOptions.counts.person);
-    map.set("playplay", ucAccountOptions.counts.playplay);
-    return map;
-  }, [ucAccountOptions]);
+  const accountOptions = useMemo(() => {
+    const opts: string[] = [];
+    if (accountTypeCounts.company > 0) opts.push("company");
+    if (accountTypeCounts.person > 0) opts.push("person");
+    if (accountTypeCounts.playplay > 0) opts.push("playplay");
+    return opts;
+  }, [accountTypeCounts]);
 
-  // When filters are active, recompute pivot from posts
-  const hasUcFilters = platformFilter !== "all" || ucAccountFilter.size > 0;
-  const filteredPivot = useMemo(() => {
-    if (!hasUcFilters || !useCasePivot) return useCasePivot;
-    let filtered = posts;
-    if (platformFilter !== "all") {
-      filtered = filtered.filter((p) => (p.platform || "linkedin") === platformFilter);
+  const accountCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+    map.set("company", accountTypeCounts.company);
+    map.set("person", accountTypeCounts.person);
+    map.set("playplay", accountTypeCounts.playplay);
+    return map;
+  }, [accountTypeCounts]);
+
+  // Filtered + sorted posts for the Posts tab
+  const filteredPosts = useMemo(() => {
+    let result = posts;
+    if (filterPlatforms.size > 0) {
+      result = result.filter((p) => filterPlatforms.has(p.platform || "linkedin"));
     }
-    if (ucAccountFilter.size > 0) {
-      filtered = filtered.filter((p) => {
+    if (filterFormats.size > 0) {
+      result = result.filter((p) => {
+        const fmt = normalizeFormat(p.format_family);
+        return fmt && filterFormats.has(fmt);
+      });
+    }
+    if (filterUseCases.size > 0) {
+      result = result.filter((p) => p.claude_use_case && filterUseCases.has(p.claude_use_case));
+    }
+    if (filterAccountType.size > 0) {
+      result = result.filter((p) => {
         const author = p.author_name || "";
-        for (const f of ucAccountFilter) {
+        for (const f of filterAccountType) {
           if (f === "playplay" && setHas(playplaySlugs, author)) return true;
           if (f === "company" && mapLookup(accountTypes, author) === "company") return true;
           if (f === "person" && mapLookup(accountTypes, author) === "person") return true;
@@ -265,50 +316,57 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
         return false;
       });
     }
-    const byUseCase = new Map<string, { counts: Record<string, number>; total: number; bestUrl: string | null; bestEng: number }>();
-    const fmtSet = new Set<string>();
-    for (const p of filtered) {
-      if (!p.claude_use_case) continue;
-      let entry = byUseCase.get(p.claude_use_case);
-      if (!entry) {
-        entry = { counts: {}, total: 0, bestUrl: null, bestEng: -1 };
-        byUseCase.set(p.claude_use_case, entry);
-      }
-      const fmt = normalizeFormat(p.format_family);
-      if (fmt) {
-        entry.counts[fmt] = (entry.counts[fmt] || 0) + 1;
-        fmtSet.add(fmt);
-      }
-      entry.total++;
-      if ((p.engagement_rate ?? 0) > entry.bestEng) {
-        entry.bestEng = p.engagement_rate ?? 0;
-        entry.bestUrl = p.post_url || null;
-      }
-    }
-    const rows: UseCasePivotRow[] = Array.from(byUseCase.entries())
-      .map(([uc, d]) => ({
-        use_case: uc,
-        total: d.total,
-        counts_by_format: d.counts,
-        best_post_url: d.bestUrl,
-        best_post_engagement: d.bestEng,
-      }))
-      .sort((a, b) => b.total - a.total);
-    return {
-      rows,
-      format_families: useCasePivot.format_families.filter((f) => fmtSet.has(f)),
-      status: useCasePivot.status,
-    } as UseCasePivotResponse;
-  }, [hasUcFilters, platformFilter, ucAccountFilter, useCasePivot, posts, accountTypes, playplaySlugs]);
+    return [...result].sort((a, b) => {
+      const pa = getEngagementPriority(a, allScores);
+      const pb = getEngagementPriority(b, allScores);
+      if (pa !== pb) return pa - pb;
+      return (b.engagement_rate ?? -1) - (a.engagement_rate ?? -1);
+    });
+  }, [posts, allScores, filterPlatforms, filterFormats, filterUseCases, filterAccountType, accountTypes, playplaySlugs]);
 
-  const handleUseCaseCellClick = useCallback(
-    (useCase: string | null, format: string | null) => {
-      setGalleryFilterUseCases(useCase ? new Set([useCase]) : new Set());
-      setGalleryFilterFormat(format);
-      setTab("gallery");
-    },
-    []
-  );
+  const hasActivePostFilters = filterPlatforms.size > 0 || filterFormats.size > 0 || filterUseCases.size > 0 || filterAccountType.size > 0;
+
+  const resetAllFilters = useCallback(() => {
+    setFilterPlatforms(new Set());
+    setFilterFormats(new Set());
+    setFilterUseCases(new Set());
+    setFilterAccountType(new Set());
+  }, []);
+
+  // Collect active chips for Posts tab
+  const activeChips: { key: string; label: string; color: string; onRemove: () => void }[] = [];
+  for (const plat of filterPlatforms) {
+    activeChips.push({
+      key: `plat-${plat}`,
+      label: platformDisplayFn(plat),
+      color: "bg-gray-50 text-gray-700 border-gray-200",
+      onRemove: () => setFilterPlatforms((prev) => { const n = new Set(prev); n.delete(plat); return n; }),
+    });
+  }
+  for (const uc of filterUseCases) {
+    activeChips.push({
+      key: `uc-${uc}`,
+      label: shortUseCaseName(uc),
+      color: "bg-gray-50 text-gray-700 border-gray-200",
+      onRemove: () => setFilterUseCases((prev) => { const n = new Set(prev); n.delete(uc); return n; }),
+    });
+  }
+  for (const at of filterAccountType) {
+    activeChips.push({
+      key: `acct-${at}`,
+      label: accountDisplayFn(at),
+      color: "bg-gray-50 text-gray-700 border-gray-200",
+      onRemove: () => setFilterAccountType((prev) => { const n = new Set(prev); n.delete(at); return n; }),
+    });
+  }
+  for (const f of filterFormats) {
+    activeChips.push({
+      key: `fmt-${f}`,
+      label: formatLabel(f),
+      color: "bg-gray-50 text-gray-700 border-gray-200",
+      onRemove: () => setFilterFormats((prev) => { const n = new Set(prev); n.delete(f); return n; }),
+    });
+  }
 
   // Rotating scraping messages
   const scrapingMessages = [
@@ -401,100 +459,107 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
 
       {/* Results */}
       {job.status === "completed" && (
-        <>
-          {/* Tabs + PlatformToggle */}
-          <div className="flex items-center gap-4 border-b border-gray-200">
-            <button
-              onClick={() => setTab("gallery")}
-              className={`px-1 py-2 text-sm font-medium border-b-2 transition-colors ${
-                tab === "gallery"
-                  ? "border-gray-900 text-gray-900"
-                  : "border-transparent text-gray-400 hover:text-gray-600"
-              }`}
-            >
-              Gallery
-            </button>
-            <button
-              onClick={() => setTab("table")}
-              className={`px-1 py-2 text-sm font-medium border-b-2 transition-colors ${
-                tab === "table"
-                  ? "border-gray-900 text-gray-900"
-                  : "border-transparent text-gray-400 hover:text-gray-600"
-              }`}
-            >
-              Table
-            </button>
-            <button
-              onClick={() => setTab("usecases")}
-              className={`px-1 py-2 text-sm font-medium border-b-2 transition-colors ${
-                tab === "usecases"
-                  ? "border-gray-900 text-gray-900"
-                  : "border-transparent text-gray-400 hover:text-gray-600"
-              }`}
-            >
-              Use Cases
-            </button>
-            <div className="ml-auto pb-1">
-              <PlatformToggle
-                value={platformFilter}
-                onChange={setPlatformFilter}
-                counts={platformCounts}
-              />
-            </div>
-          </div>
-
-          {tab === "usecases" && (
-            <div className="space-y-4">
+        <div className="space-y-0">
+              {/* Filter bar */}
               <div className="flex flex-wrap items-center gap-2">
                 <FilterDropdown
-                  label="Account"
-                  options={ucAccountOptions.opts}
-                  selected={ucAccountFilter}
-                  onToggle={(val) => {
-                    setUcAccountFilter((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(val)) next.delete(val);
-                      else next.add(val);
-                      return next;
-                    });
-                  }}
-                  onClear={() => setUcAccountFilter(new Set())}
-                  displayFn={(v) => v === "company" ? "Companies" : v === "person" ? "Persons" : "PlayPlay Client"}
-                  countMap={ucAccountCountMap}
+                  label="Platform"
+                  options={PLATFORM_OPTIONS}
+                  selected={filterPlatforms}
+                  onToggle={toggle(setFilterPlatforms)}
+                  onClear={() => setFilterPlatforms(new Set())}
+                  displayFn={platformDisplayFn}
+                  countMap={platformCountMap}
                 />
+                <FilterDropdown
+                  label="Use Cases"
+                  options={useCaseOptions}
+                  selected={filterUseCases}
+                  onToggle={toggle(setFilterUseCases)}
+                  onClear={() => setFilterUseCases(new Set())}
+                  displayFn={shortUseCaseName}
+                  countMap={useCaseCounts}
+                />
+                <FilterDropdown
+                  label="Account"
+                  options={accountOptions}
+                  selected={filterAccountType}
+                  onToggle={toggle(setFilterAccountType)}
+                  onClear={() => setFilterAccountType(new Set())}
+                  displayFn={accountDisplayFn}
+                  countMap={accountCountMap}
+                />
+                <FilterDropdown
+                  label="Format"
+                  options={formatOptions}
+                  selected={filterFormats}
+                  onToggle={toggle(setFilterFormats)}
+                  onClear={() => setFilterFormats(new Set())}
+                  displayFn={formatLabel}
+                  countMap={formatCounts}
+                />
+                <button
+                  onClick={hasActivePostFilters ? resetAllFilters : undefined}
+                  className={`text-[11px] transition-colors inline-flex items-center gap-0.5 ${
+                    hasActivePostFilters
+                      ? "text-gray-500 hover:text-gray-700 cursor-pointer"
+                      : "text-gray-300 cursor-default"
+                  }`}
+                >
+                  <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  Reset
+                </button>
+                <div className="ml-auto">
+                  <ViewSwitch value={viewMode} onChange={setViewMode} />
+                </div>
               </div>
-              <UseCaseTable
-                rows={filteredPivot?.rows ?? []}
-                formatFamilies={filteredPivot?.format_families ?? []}
-                status={filteredPivot?.status ?? "classifying"}
-                onCellClick={handleUseCaseCellClick}
-              />
+
+              {/* Chips area */}
+              <div className="min-h-[28px] flex flex-wrap items-center gap-1 mt-1.5 mb-4">
+                {activeChips.length > 0 ? (
+                  activeChips.map((chip) => (
+                    <span
+                      key={chip.key}
+                      className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[11px] rounded-full border ${chip.color}`}
+                    >
+                      <span className="truncate max-w-[180px]">{chip.label}</span>
+                      <button
+                        onClick={chip.onRemove}
+                        className="opacity-50 hover:opacity-100 ml-0.5"
+                      >
+                        <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-gray-400">{filteredPosts.length} posts</span>
+                )}
+              </div>
+
+              {/* Gallery or Table */}
+              {viewMode === "gallery" ? (
+                <PostGallery
+                  posts={filteredPosts}
+                  allScores={allScores}
+                  playplaySlugs={playplaySlugs}
+                  accountNames={accountNames}
+                  accountTypes={accountTypes}
+                  showSector
+                  showUseCase
+                />
+              ) : (
+                <PostTable
+                  posts={filteredPosts}
+                  accountNames={accountNames}
+                  accountTypes={accountTypes}
+                  companyNames={companyNames}
+                />
+              )}
             </div>
-          )}
-          {tab === "table" && (
-            <PostTable
-              posts={posts}
-              accountNames={accountNames}
-              accountTypes={accountTypes}
-              playplaySlugs={playplaySlugs}
-              filterPlatform={platformFilter === "all" ? null : platformFilter}
-            />
-          )}
-          {tab === "gallery" && (
-            <PostGallery
-              posts={posts}
-              playplaySlugs={playplaySlugs}
-              accountNames={accountNames}
-              accountTypes={accountTypes}
-              externalFilterFormat={galleryFilterFormat}
-              externalFilterUseCases={galleryFilterUseCases}
-              onFiltersApplied={() => { setGalleryFilterFormat(null); setGalleryFilterUseCases(new Set()); }}
-              filterPlatform={platformFilter === "all" ? null : platformFilter}
-              showSector
-              showUseCase
-            />
-          )}
-        </>
       )}
     </div>
   );
