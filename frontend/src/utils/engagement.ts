@@ -11,6 +11,17 @@ function percentileRank(value: number, sortedAsc: number[]): number {
   return below / (sortedAsc.length - 1);
 }
 
+/** Return sort priority: Viral=0, Engaging=1, Neutral=2 (lower = better). */
+export function getEngagementPriority(
+  post: PostEngagement,
+  allScores: number[]
+): number {
+  const { label } = getEngagementLabel(post, allScores);
+  if (label === "Viral") return 0;
+  if (label === "Engaging") return 1;
+  return 2;
+}
+
 export function getEngagementLabel(
   post: PostEngagement,
   allScores: number[]

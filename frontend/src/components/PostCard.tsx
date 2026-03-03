@@ -89,6 +89,41 @@ export function InstagramIcon({ className = "" }: { className?: string }) {
   );
 }
 
+// --- Use case short names ---
+
+const USE_CASE_SHORT_NAMES: Record<string, string> = {
+  "announce an event": "Event announce",
+  "recap an event": "Event recap",
+  "present a webinar/program": "Webinar / Program",
+  "share internal initiative": "Internal initiative",
+  "promote open positions": "Job opening",
+  "welcome new employee": "New hire welcome",
+  "spotlight an employee/team": "Employee spotlight",
+  "present an offer/product": "Product presentation",
+  "showcase a customer success story": "Customer story",
+  "present company strategy": "Company strategy",
+  "share results or statistics or performance": "Results & stats",
+  "share company values": "Company values",
+  "share tips and tricks": "Tips & tricks",
+  "promote a product": "Product promo",
+  "share news": "Company news",
+  "explain a process": "Process explainer",
+  "train employees": "Employee training",
+  "educate on a topic": "Education",
+  "share a testimonial": "Testimonial",
+  "introduce a new tool or feature": "New tool / Feature",
+  "react to current events": "Current events",
+  "celebrate milestone": "Milestone",
+  "tutorial": "Tutorial",
+  "express opinion (pov)": "Opinion / POV",
+  "promote a service": "Service promo",
+  "other": "Other",
+};
+
+export function shortUseCaseName(fullName: string): string {
+  return USE_CASE_SHORT_NAMES[fullName] || fullName;
+}
+
 // --- PostCard component ---
 
 interface PostCardProps {
@@ -98,37 +133,64 @@ interface PostCardProps {
   accountNames?: Map<string, string>;
   playplaySlugs?: Set<string>;
   showSector?: boolean;
+  showUseCase?: boolean;
 }
 
-export default function PostCard({ post, allScores, accountTypes, accountNames, playplaySlugs, showSector }: PostCardProps) {
+export default function PostCard({ post, allScores, accountTypes, accountNames, playplaySlugs, showSector, showUseCase }: PostCardProps) {
   const fmt = normalizeFormat(post.format_family);
   const style = getFormatStyle(post.format_family);
   const authorType = mapLookup(accountTypes, post.author_name || "");
+  const isPlayPlay = setHas(playplaySlugs, post.author_name || "");
 
   return (
     <a
       href={post.post_url || "#"}
       target="_blank"
       rel="noopener noreferrer"
-      className={`block bg-white border rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden ${style.border}`}
+      className="block bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow overflow-hidden"
     >
-      {/* Preview */}
-      <div className="aspect-[4/3] overflow-hidden relative bg-gray-50">
-        {/* Platform badge — top-left corner */}
-        <div className="absolute top-0 left-0 z-10 bg-white rounded-br-xl p-1.5 shadow-sm">
-          {post.platform === "instagram" ? (
-            <InstagramIcon className="w-4 h-4 text-[#E4405F]" />
-          ) : (
-            <LinkedInIcon className="w-4 h-4 text-[#0A66C2]" />
+      {/* Header */}
+      <div className="px-4 pt-4 pb-2.5">
+        {/* Line 1: name + format pill + platform icon */}
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold text-gray-900 truncate flex items-center gap-1.5 min-w-0 flex-1">
+            {authorType === "person" ? (
+              <PersonIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            ) : authorType === "company" ? (
+              <BuildingIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            ) : null}
+            <span className="truncate">
+              {mapLookup(accountNames, post.author_name || "") || post.author_name || "Unknown"}
+            </span>
+          </p>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {fmt && (
+              <span className={`text-xs px-2 py-0.5 rounded ${style.bg} ${style.text}`}>
+                {formatLabel(fmt)}
+              </span>
+            )}
+            {post.platform === "instagram" ? (
+              <InstagramIcon className="w-3.5 h-3.5 text-[#E4405F]" />
+            ) : (
+              <LinkedInIcon className="w-3.5 h-3.5 text-[#0A66C2]" />
+            )}
+          </div>
+        </div>
+        {/* Line 2: sector + use case */}
+        <div className="flex items-center justify-between mt-1">
+          {showSector && post.sector ? (
+            <p className="text-[10px] text-gray-400 truncate">{post.sector}</p>
+          ) : <span />}
+          {showUseCase && post.claude_use_case && (
+            <span className="text-[10px] text-gray-400 shrink-0 truncate max-w-[140px]">
+              <span className="opacity-50">&#x25CE;</span> {shortUseCaseName(post.claude_use_case)}
+            </span>
           )}
         </div>
-        {setHas(playplaySlugs, post.author_name || "") && (
-          <div className="absolute top-0 right-0 z-10 overflow-hidden w-24 h-24 pointer-events-none">
-            <div className="absolute top-[11px] right-[-26px] w-[120px] bg-violet-600 text-white text-[11px] font-semibold py-[1px] rotate-45 shadow-sm text-center pl-[20px]">
-              PlayPlay
-            </div>
-          </div>
-        )}
+      </div>
+
+      {/* Preview */}
+      <div className="aspect-[4/3] overflow-hidden relative bg-gray-50">
         {post.image_url ? (
           <>
             <img
@@ -164,67 +226,34 @@ export default function PostCard({ post, allScores, accountTypes, accountNames, 
         )}
       </div>
 
-      {/* Info */}
-      <div className="px-4 py-3 space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <p className="text-base font-semibold text-gray-900 truncate flex items-center gap-1.5">
-              {authorType === "person" ? (
-                <PersonIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-              ) : authorType === "company" ? (
-                <BuildingIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-              ) : null}
-              <span className="truncate">
-                {mapLookup(accountNames, post.author_name || "") || post.author_name || "Unknown"}
-              </span>
-            </p>
-            {showSector && post.sector && (
-              <p className="text-[11px] text-gray-400 truncate">{post.sector}</p>
+      {/* Footer — engagement (colored) + PlayPlay Client */}
+      {(() => {
+        const eng = getEngagementLabel(post, allScores);
+        const engColor = eng.label === "Viral"
+          ? "text-[#b94040]"
+          : eng.label === "Engaging"
+            ? "text-[#2b7cb8]"
+            : "text-gray-400";
+        return (
+          <div className="px-4 py-3.5 flex items-center gap-4 text-xs">
+            <span className={`flex items-center gap-1 ${engColor}`}>
+              <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z" />
+              </svg>
+              {post.reactions}
+            </span>
+            <span className={`flex items-center gap-1 ${engColor}`}>
+              <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
+              </svg>
+              {post.comments}
+            </span>
+            {isPlayPlay && (
+              <span className="ml-auto text-[10px] text-violet-400">PlayPlay Client</span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            {fmt && (
-              <span className={`text-xs px-2 py-0.5 rounded ${style.bg} ${style.text}`}>
-                {formatLabel(fmt)}
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4 text-xs text-gray-500">
-          <span className="flex items-center gap-1">
-            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z" />
-            </svg>
-            {post.reactions}
-          </span>
-          <span className="flex items-center gap-1">
-            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
-            </svg>
-            {post.comments}
-          </span>
-          {(() => {
-            const eng = getEngagementLabel(post, allScores);
-            const dotColor = eng.label === "Viral"
-              ? "bg-rose-800"
-              : eng.label === "Engaging"
-                ? "bg-blue-400"
-                : "bg-gray-300";
-            const textColor = eng.label === "Viral"
-              ? "text-rose-800"
-              : eng.label === "Engaging"
-                ? "text-blue-400"
-                : "text-gray-400";
-            return (
-              <span className={`flex items-center gap-1 ml-auto ${textColor}`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
-                {eng.label}
-              </span>
-            );
-          })()}
-        </div>
-      </div>
+        );
+      })()}
     </a>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Routes, Route, Link, useLocation, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate, Link, useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { listScrapeJobs, deleteScrapeJob } from "./api/client";
 import type { ScrapeJob } from "./types";
@@ -186,8 +186,8 @@ export default function App() {
     <div className="min-h-screen bg-white">
       <header className="sticky top-0 z-40 bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-          <Link to="/" className="flex flex-col items-start hover:opacity-80">
-            <img src="/logo.png" alt="Onda" className="h-11 w-auto object-contain" />
+          <Link to="/library" className="hover:opacity-80">
+            <img src="/logo.png" alt="Onda" className="h-14 w-auto object-contain" />
           </Link>
           <nav className="flex items-center gap-4 text-sm">
             <Link
@@ -215,7 +215,7 @@ export default function App() {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-6 py-8 flex gap-8">
+      <div className="max-w-[1400px] mx-auto px-6 py-8 flex gap-8">
         {/* Sidebar */}
         <aside className="w-56 shrink-0 hidden md:block border-r border-gray-200 pr-8">
           <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-3">
@@ -259,8 +259,9 @@ export default function App() {
         {/* Main content */}
         <main className="flex-1 min-w-0">
           <Routes>
+            <Route path="/" element={<Navigate to="/library" replace />} />
             <Route
-              path="/"
+              path="/library"
               element={
                 !jobsLoaded ? (
                   <p className="text-center text-gray-400 py-8">Loading...</p>
