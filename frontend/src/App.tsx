@@ -186,7 +186,7 @@ export default function App() {
     <div className="min-h-screen bg-white">
       <header className="sticky top-0 z-40 bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-          <Link to="/library" className="hover:opacity-80">
+          <Link to="/library" className="hover:opacity-80 -ml-16">
             <img src="/logo.png" alt="Onda" className="h-14 w-auto object-contain" />
           </Link>
           <nav className="flex items-center gap-4 text-sm">

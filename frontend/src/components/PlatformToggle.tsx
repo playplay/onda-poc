@@ -14,7 +14,7 @@ export default function PlatformToggle({ value, onChange, counts }: Props) {
     {
       key: "linkedin",
       label: (
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center justify-center gap-1 min-w-[32px]">
           <LinkedInIcon className="w-3 h-3" />
           {counts?.linkedin != null && <span>{counts.linkedin}</span>}
         </span>
@@ -24,7 +24,7 @@ export default function PlatformToggle({ value, onChange, counts }: Props) {
     {
       key: "instagram",
       label: (
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center justify-center gap-1 min-w-[32px]">
           <InstagramIcon className="w-3 h-3" />
           {counts?.instagram != null && <span>{counts.instagram}</span>}
         </span>
@@ -34,7 +34,7 @@ export default function PlatformToggle({ value, onChange, counts }: Props) {
     {
       key: "tiktok",
       label: (
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center justify-center gap-1 min-w-[32px]">
           <TikTokIcon className="w-3 h-3" />
           {counts?.tiktok != null && <span>{counts.tiktok}</span>}
         </span>

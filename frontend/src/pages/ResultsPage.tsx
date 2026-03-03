@@ -10,6 +10,7 @@ import {
 import type { ScrapeJob, Post, UseCasePivotResponse, UseCasePivotRow } from "../types";
 import PostGallery from "../components/PostGallery";
 import UseCaseTable from "../components/UseCaseTable";
+import PostTable from "../components/PostTable";
 import PlatformToggle, { type PlatformFilterValue } from "../components/PlatformToggle";
 import FilterDropdown from "../components/FilterDropdown";
 import { normalizeFormat, mapLookup, setHas } from "../components/PostCard";
@@ -89,7 +90,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
   );
 
   const [posts, setPosts] = useState<Post[]>([]);
-  const [tab, setTab] = useState<"gallery" | "usecases">("gallery");
+  const [tab, setTab] = useState<"gallery" | "table" | "usecases">("gallery");
   const [useCasePivot, setUseCasePivot] = useState<UseCasePivotResponse | null>(null);
 
   // Gallery filters set from UseCaseTable navigation
@@ -309,6 +310,21 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
     []
   );
 
+  // Rotating scraping messages
+  const scrapingMessages = [
+    "Scraping LinkedIn posts...",
+    "Scraping Instagram posts...",
+    "Scraping TikTok posts...",
+  ];
+  const [scrapingMsgIndex, setScrapingMsgIndex] = useState(0);
+  useEffect(() => {
+    if (!job || (job.status !== "pending" && job.status !== "running")) return;
+    const timer = setInterval(() => {
+      setScrapingMsgIndex((i) => (i + 1) % scrapingMessages.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [job?.status]);
+
   if (!job) {
     return <p className="text-center text-gray-400 py-8">Loading...</p>;
   }
@@ -354,7 +370,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
         <div className="border border-gray-200 rounded-lg p-8 text-center">
           <div className="animate-spin inline-block w-6 h-6 border-2 border-gray-900 border-t-transparent rounded-full mb-3" />
           <p className="text-gray-700 font-medium text-sm">
-            Scraping LinkedIn posts...
+            {scrapingMessages[scrapingMsgIndex]}
           </p>
           <p className="text-gray-400 text-xs mt-1">
             This may take a few minutes depending on the number of results.
@@ -396,7 +412,17 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
                   : "border-transparent text-gray-400 hover:text-gray-600"
               }`}
             >
-              Posts
+              Gallery
+            </button>
+            <button
+              onClick={() => setTab("table")}
+              className={`px-1 py-2 text-sm font-medium border-b-2 transition-colors ${
+                tab === "table"
+                  ? "border-gray-900 text-gray-900"
+                  : "border-transparent text-gray-400 hover:text-gray-600"
+              }`}
+            >
+              Table
             </button>
             <button
               onClick={() => setTab("usecases")}
@@ -444,6 +470,15 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
                 onCellClick={handleUseCaseCellClick}
               />
             </div>
+          )}
+          {tab === "table" && (
+            <PostTable
+              posts={posts}
+              accountNames={accountNames}
+              accountTypes={accountTypes}
+              playplaySlugs={playplaySlugs}
+              filterPlatform={platformFilter === "all" ? null : platformFilter}
+            />
           )}
           {tab === "gallery" && (
             <PostGallery

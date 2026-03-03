@@ -1,29 +1,15 @@
 import type { Post } from "../types";
 import { getEngagementLabel } from "../utils/engagement";
+import { normalizeFormat, getFormatStyle, formatLabel } from "../utils/format";
+import { shortUseCaseName } from "../utils/useCase";
+import { mapLookup, setHas } from "../utils/maps";
+import { PersonIcon, BuildingIcon, LinkedInIcon, InstagramIcon, TikTokIcon } from "./icons";
 
-// --- Shared utilities (also used by PostGallery for filter logic) ---
-
-export const FORMAT_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  video:     { bg: "bg-purple-50", text: "text-purple-700", border: "border-purple-200" },
-  carousel:  { bg: "bg-blue-50",   text: "text-blue-700",   border: "border-blue-200" },
-  image:     { bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-200" },
-  images:    { bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-200" },
-  gif:       { bg: "bg-orange-100", text: "text-orange-800", border: "border-orange-300" },
-  text:      { bg: "bg-gray-50",   text: "text-gray-500",   border: "border-gray-200" },
-};
-
-export function normalizeFormat(format: string | null): string | null {
-  if (!format) return null;
-  const key = format.toLowerCase();
-  if (key === "short_video" || key === "long_video") return "video";
-  return key;
-}
-
-export function getFormatStyle(format: string | null) {
-  const key = normalizeFormat(format);
-  if (!key) return FORMAT_COLORS.text;
-  return FORMAT_COLORS[key] || FORMAT_COLORS.text;
-}
+// Re-exports so existing imports from PostCard keep working
+export { FORMAT_COLORS, normalizeFormat, getFormatStyle, FORMAT_LABELS, formatLabel } from "../utils/format";
+export { shortUseCaseName } from "../utils/useCase";
+export { mapLookup, setHas } from "../utils/maps";
+export { PersonIcon, BuildingIcon, LinkedInIcon, InstagramIcon, TikTokIcon } from "./icons";
 
 export function isVideoPost(post: Post) {
   if (post.video_url) return true;
@@ -32,104 +18,6 @@ export function isVideoPost(post: Post) {
 
 export function computeEngagement(post: Post) {
   return post.reactions + post.comments * 3;
-}
-
-export const FORMAT_LABELS: Record<string, string> = {
-  image: "Image",
-  images: "Images",
-  gif: "GIF",
-  video: "Video",
-  carousel: "Carousel",
-  text: "Text",
-};
-
-export function formatLabel(fmt: string) {
-  return FORMAT_LABELS[fmt] || fmt.charAt(0).toUpperCase() + fmt.slice(1);
-}
-
-export function PersonIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" />
-    </svg>
-  );
-}
-
-export function BuildingIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor">
-      <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 01-1 1h-2a1 1 0 01-1-1v-2a1 1 0 00-1-1H9a1 1 0 00-1 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V4zm3 1h2v2H7V5zm2 4H7v2h2V9zm2-4h2v2h-2V5zm2 4h-2v2h2V9z" clipRule="evenodd" />
-    </svg>
-  );
-}
-
-export function mapLookup<T>(map: Map<string, T> | undefined, key: string): T | undefined {
-  if (!map) return undefined;
-  return map.get(key) ?? map.get(key.toLowerCase());
-}
-
-export function setHas(set: Set<string> | undefined, key: string): boolean {
-  if (!set) return false;
-  return set.has(key) || set.has(key.toLowerCase());
-}
-
-export function LinkedInIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
-    </svg>
-  );
-}
-
-export function InstagramIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/>
-    </svg>
-  );
-}
-
-export function TikTokIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
-      <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1v-3.52a6.37 6.37 0 00-.79-.05A6.34 6.34 0 003.15 15.2a6.34 6.34 0 0010.86 4.46V13.2a8.16 8.16 0 005.58 2.17V11.9a4.84 4.84 0 01-3.58-1.64V6.69h3.58z"/>
-    </svg>
-  );
-}
-
-// --- Use case short names ---
-
-const USE_CASE_SHORT_NAMES: Record<string, string> = {
-  "announce an event": "Event announce",
-  "recap an event": "Event recap",
-  "present a webinar/program": "Webinar / Program",
-  "share internal initiative": "Internal initiative",
-  "promote open positions": "Job opening",
-  "welcome new employee": "New hire welcome",
-  "spotlight an employee/team": "Employee spotlight",
-  "present an offer/product": "Product presentation",
-  "showcase a customer success story": "Customer story",
-  "present company strategy": "Company strategy",
-  "share results or statistics or performance": "Results & stats",
-  "share company values": "Company values",
-  "share tips and tricks": "Tips & tricks",
-  "promote a product": "Product promo",
-  "share news": "Company news",
-  "explain a process": "Process explainer",
-  "train employees": "Employee training",
-  "educate on a topic": "Education",
-  "share a testimonial": "Testimonial",
-  "introduce a new tool or feature": "New tool / Feature",
-  "react to current events": "Current events",
-  "celebrate milestone": "Milestone",
-  "tutorial": "Tutorial",
-  "express opinion (pov)": "Opinion / POV",
-  "promote a service": "Service promo",
-  "other": "Other",
-};
-
-export function shortUseCaseName(fullName: string): string {
-  return USE_CASE_SHORT_NAMES[fullName] || fullName;
 }
 
 // --- PostCard component ---
