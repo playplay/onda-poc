@@ -89,6 +89,14 @@ export function InstagramIcon({ className = "" }: { className?: string }) {
   );
 }
 
+export function TikTokIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M19.59 6.69a4.83 4.83 0 01-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 01-2.88 2.5 2.89 2.89 0 01-2.89-2.89 2.89 2.89 0 012.89-2.89c.28 0 .54.04.79.1v-3.52a6.37 6.37 0 00-.79-.05A6.34 6.34 0 003.15 15.2a6.34 6.34 0 0010.86 4.46V13.2a8.16 8.16 0 005.58 2.17V11.9a4.84 4.84 0 01-3.58-1.64V6.69h3.58z"/>
+    </svg>
+  );
+}
+
 // --- Use case short names ---
 
 const USE_CASE_SHORT_NAMES: Record<string, string> = {
@@ -169,7 +177,9 @@ export default function PostCard({ post, allScores, accountTypes, accountNames, 
                 {formatLabel(fmt)}
               </span>
             )}
-            {post.platform === "instagram" ? (
+            {post.platform === "tiktok" ? (
+              <TikTokIcon className="w-3.5 h-3.5 text-black" />
+            ) : post.platform === "instagram" ? (
               <InstagramIcon className="w-3.5 h-3.5 text-[#E4405F]" />
             ) : (
               <LinkedInIcon className="w-3.5 h-3.5 text-[#0A66C2]" />
@@ -210,7 +220,9 @@ export default function PostCard({ post, allScores, accountTypes, accountNames, 
               className="absolute inset-0 items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200"
               style={{ display: "none" }}
             >
-              {post.platform === "instagram" ? (
+              {post.platform === "tiktok" ? (
+                <TikTokIcon className="w-10 h-10 text-gray-300" />
+              ) : post.platform === "instagram" ? (
                 <InstagramIcon className="w-10 h-10 text-gray-300" />
               ) : (
                 <LinkedInIcon className="w-10 h-10 text-gray-300" />

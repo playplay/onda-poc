@@ -1,13 +1,15 @@
-import { LinkedInIcon, InstagramIcon } from "./PostCard";
+import { LinkedInIcon, InstagramIcon, TikTokIcon } from "./PostCard";
+
+export type PlatformFilterValue = "all" | "linkedin" | "instagram" | "tiktok";
 
 interface Props {
-  value: "all" | "linkedin" | "instagram";
-  onChange: (v: "all" | "linkedin" | "instagram") => void;
-  counts?: { linkedin?: number; instagram?: number };
+  value: PlatformFilterValue;
+  onChange: (v: PlatformFilterValue) => void;
+  counts?: { linkedin?: number; instagram?: number; tiktok?: number };
 }
 
 export default function PlatformToggle({ value, onChange, counts }: Props) {
-  const items: { key: "all" | "linkedin" | "instagram"; label: React.ReactNode; active: string }[] = [
+  const items: { key: PlatformFilterValue; label: React.ReactNode; active: string }[] = [
     { key: "all", label: "All", active: "bg-gray-100 text-gray-800" },
     {
       key: "linkedin",
@@ -28,6 +30,16 @@ export default function PlatformToggle({ value, onChange, counts }: Props) {
         </span>
       ),
       active: "bg-pink-50 text-pink-600",
+    },
+    {
+      key: "tiktok",
+      label: (
+        <span className="inline-flex items-center gap-1">
+          <TikTokIcon className="w-3 h-3" />
+          {counts?.tiktok != null && <span>{counts.tiktok}</span>}
+        </span>
+      ),
+      active: "bg-gray-100 text-black",
     },
   ];
 

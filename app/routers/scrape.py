@@ -115,6 +115,17 @@ async def trigger_scrape(
         except Exception as e:
             logger.warning(f"Failed to start Instagram scrape: {e}")
 
+    # TikTok scrape: Bright Data
+    tiktok_accounts = [a for a in accounts if a.tiktok_url]
+    if tiktok_accounts and settings.API_BRIGHT_DATA:
+        from app.services.tiktok_scraper import start_scrape as tt_start
+        try:
+            await tt_start(db, job, tiktok_accounts)
+            if job.tiktok_snapshot_id:
+                backends.append("tiktok")
+        except Exception as e:
+            logger.warning(f"Failed to start TikTok scrape: {e}")
+
     # If BD failed but person scrape started, store BD error as warning
     if bd_error and backends:
         job.error_message = f"[Bright Data failed: {bd_error}]"
@@ -205,16 +216,22 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
             from app.services.instagram_scraper import check_scrape_ready as ig_check
             ig_status = await ig_check(job)
 
+        # Check TikTok status
+        tt_status = "ready"
+        if "tiktok" in backends and job.tiktok_snapshot_id:
+            from app.services.tiktok_scraper import check_scrape_ready as tt_check
+            tt_status = await tt_check(job)
+
         # If any failed → mark job failed
-        if bd_status == "failed" or profile_status == "failed" or ig_status == "failed":
+        if bd_status == "failed" or profile_status == "failed" or ig_status == "failed" or tt_status == "failed":
             job.status = "failed"
-            job.error_message = f"Backend failure: brightdata={bd_status}, profile={profile_status}, instagram={ig_status}"
+            job.error_message = f"Backend failure: brightdata={bd_status}, profile={profile_status}, instagram={ig_status}, tiktok={tt_status}"
             job.completed_at = datetime.utcnow()
             await db.commit()
             return
 
         # If any still running → return early
-        if bd_status == "running" or profile_status == "running" or ig_status == "running":
+        if bd_status == "running" or profile_status == "running" or ig_status == "running" or tt_status == "running":
             return
 
         # All ready — lock job row to prevent concurrent insertion
@@ -288,6 +305,11 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
             ig_posts = await ig_fetch(db, job)
             all_posts.extend(ig_posts)
 
+        if "tiktok" in backends and job.tiktok_snapshot_id:
+            from app.services.tiktok_scraper import fetch_and_process_results as tt_fetch
+            tt_posts = await tt_fetch(db, job)
+            all_posts.extend(tt_posts)
+
         # Update follower_count on watched accounts from the most recent post data
         await _update_account_followers(db, job.sector, all_posts)
 
@@ -317,13 +339,18 @@ async def _update_account_followers(
     # Build slug → account mapping
     slug_to_account: dict[str, WatchedAccount] = {}
     for a in accounts:
-        match = re.search(r"/(in|company)/([^/]+)", a.linkedin_url)
-        if match:
-            slug_to_account[match.group(2).lower()] = a
+        if a.linkedin_url:
+            match = re.search(r"/(in|company)/([^/]+)", a.linkedin_url)
+            if match:
+                slug_to_account[match.group(2).lower()] = a
         if a.instagram_url:
             ig_match = re.search(r"instagram\.com/([^/]+)", a.instagram_url)
             if ig_match:
                 slug_to_account[ig_match.group(1).lower()] = a
+        if a.tiktok_url:
+            tt_match = re.search(r"tiktok\.com/@([^/?\s]+)", a.tiktok_url)
+            if tt_match:
+                slug_to_account[tt_match.group(1).lower()] = a
 
     # Update from post author_follower_count (take the max per account)
     for post in posts:

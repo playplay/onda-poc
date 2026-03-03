@@ -3,7 +3,7 @@ import type { LibraryResponse } from "../types";
 import { getLibrary, getAccounts } from "../api/client";
 import PostCard, { normalizeFormat, formatLabel, shortUseCaseName } from "../components/PostCard";
 import FilterDropdown from "../components/FilterDropdown";
-import PlatformToggle from "../components/PlatformToggle";
+import PlatformToggle, { type PlatformFilterValue } from "../components/PlatformToggle";
 import { getEngagementPriority } from "../utils/engagement";
 
 // Module-level cache with TTL
@@ -27,7 +27,7 @@ export default function LibraryPage() {
   const [filterSectors, setFilterSectors] = useState<Set<string>>(new Set());
   const [filterFormats, setFilterFormats] = useState<Set<string>>(new Set());
   const [filterUseCases, setFilterUseCases] = useState<Set<string>>(new Set());
-  const [platformFilter, setPlatformFilter] = useState<"all" | "linkedin" | "instagram">("all");
+  const [platformFilter, setPlatformFilter] = useState<PlatformFilterValue>("all");
 
   useEffect(() => {
     const cached = getCached();
@@ -72,6 +72,16 @@ export default function LibraryPage() {
             if (a.is_playplay_client) slugs.add(igUser);
           }
         }
+        // Map by TikTok username
+        if (a.tiktok_url) {
+          const ttMatch = a.tiktok_url.match(/tiktok\.com\/@([^/?\s]+)/);
+          if (ttMatch) {
+            const ttUser = ttMatch[1].toLowerCase();
+            names.set(ttUser, a.name);
+            types.set(ttUser, a.type);
+            if (a.is_playplay_client) slugs.add(ttUser);
+          }
+        }
         if (a.is_playplay_client) {
           slugs.add(slug);
           slugs.add(a.name);
@@ -90,10 +100,10 @@ export default function LibraryPage() {
   );
 
   const platformCounts = useMemo(() => {
-    if (!data) return { linkedin: 0, instagram: 0 };
-    const map = { linkedin: 0, instagram: 0 };
+    if (!data) return { linkedin: 0, instagram: 0, tiktok: 0 };
+    const map = { linkedin: 0, instagram: 0, tiktok: 0 };
     for (const p of data.posts) {
-      const plat = (p.platform || "linkedin") as "linkedin" | "instagram";
+      const plat = (p.platform || "linkedin") as "linkedin" | "instagram" | "tiktok";
       if (plat in map) map[plat]++;
     }
     return map;

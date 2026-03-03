@@ -10,7 +10,7 @@ import {
 import type { ScrapeJob, Post, UseCasePivotResponse, UseCasePivotRow } from "../types";
 import PostGallery from "../components/PostGallery";
 import UseCaseTable from "../components/UseCaseTable";
-import PlatformToggle from "../components/PlatformToggle";
+import PlatformToggle, { type PlatformFilterValue } from "../components/PlatformToggle";
 import FilterDropdown from "../components/FilterDropdown";
 import { normalizeFormat, mapLookup, setHas } from "../components/PostCard";
 
@@ -32,7 +32,7 @@ const accountsCache = new Map<
   { names: Map<string, string>; types: Map<string, "company" | "person">; slugs: Set<string> }
 >();
 
-function buildAccountMaps(accounts: { name: string; type: "company" | "person"; linkedin_url?: string | null; instagram_url?: string | null; is_playplay_client?: boolean }[]) {
+function buildAccountMaps(accounts: { name: string; type: "company" | "person"; linkedin_url?: string | null; instagram_url?: string | null; tiktok_url?: string | null; is_playplay_client?: boolean }[]) {
   const names = new Map<string, string>();
   const types = new Map<string, "company" | "person">();
   const slugs = new Set<string>();
@@ -54,6 +54,15 @@ function buildAccountMaps(accounts: { name: string; type: "company" | "person"; 
         names.set(igUser, a.name);
         types.set(igUser, a.type);
         if (a.is_playplay_client) slugs.add(igUser);
+      }
+    }
+    if (a.tiktok_url) {
+      const ttMatch = a.tiktok_url.match(/tiktok\.com\/@([^/?\s]+)/);
+      if (ttMatch) {
+        const ttUser = ttMatch[1].toLowerCase();
+        names.set(ttUser, a.name);
+        types.set(ttUser, a.type);
+        if (a.is_playplay_client) slugs.add(ttUser);
       }
     }
     if (a.is_playplay_client) {
@@ -86,7 +95,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
   // Gallery filters set from UseCaseTable navigation
   const [galleryFilterFormat, setGalleryFilterFormat] = useState<string | null>(null);
   const [galleryFilterUseCases, setGalleryFilterUseCases] = useState<Set<string>>(new Set());
-  const [platformFilter, setPlatformFilter] = useState<"all" | "linkedin" | "instagram">("all");
+  const [platformFilter, setPlatformFilter] = useState<PlatformFilterValue>("all");
   const [ucAccountFilter, setUcAccountFilter] = useState<Set<string>>(new Set());
   const [playplaySlugs, setPlayplaySlugs] = useState<Set<string>>(new Set());
   const [accountNames, setAccountNames] = useState<Map<string, string>>(new Map());
@@ -204,9 +213,9 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
 
   // Platform counts for toggle
   const platformCounts = useMemo(() => {
-    const map = { linkedin: 0, instagram: 0 };
+    const map = { linkedin: 0, instagram: 0, tiktok: 0 };
     for (const p of posts) {
-      const plat = (p.platform || "linkedin") as "linkedin" | "instagram";
+      const plat = (p.platform || "linkedin") as "linkedin" | "instagram" | "tiktok";
       if (plat in map) map[plat]++;
     }
     return map;

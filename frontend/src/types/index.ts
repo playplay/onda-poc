@@ -8,6 +8,7 @@ export interface WatchedAccount {
   type: "company" | "person";
   linkedin_url: string | null;
   instagram_url: string | null;
+  tiktok_url: string | null;
   sector: string;
   company_name: string | null;
   is_playplay_client: boolean;
@@ -19,6 +20,7 @@ export interface WatchedAccountCreate {
   type: "company" | "person";
   linkedin_url?: string | null;
   instagram_url?: string | null;
+  tiktok_url?: string | null;
   sector: string;
   company_name?: string | null;
   is_playplay_client?: boolean;
@@ -29,6 +31,7 @@ export interface WatchedAccountUpdate {
   type?: "company" | "person";
   linkedin_url?: string | null;
   instagram_url?: string | null;
+  tiktok_url?: string | null;
   sector?: string;
   company_name?: string | null;
   is_playplay_client?: boolean;

@@ -11,6 +11,7 @@ class WatchedAccountCreate(BaseModel):
     type: str = Field(default="company", pattern="^(company|person)$")
     linkedin_url: str | None = None
     instagram_url: str | None = None
+    tiktok_url: str | None = None
     sector: str = Field(..., min_length=1)
     company_name: str | None = None
     is_playplay_client: bool = False
@@ -21,6 +22,7 @@ class WatchedAccountUpdate(BaseModel):
     type: str | None = Field(None, pattern="^(company|person)$")
     linkedin_url: str | None = None
     instagram_url: str | None = None
+    tiktok_url: str | None = None
     sector: str | None = None
     company_name: str | None = None
     is_playplay_client: bool | None = None
@@ -32,6 +34,7 @@ class WatchedAccountOut(BaseModel):
     type: str
     linkedin_url: str | None = None
     instagram_url: str | None = None
+    tiktok_url: str | None = None
     sector: str
     company_name: str | None = None
     is_playplay_client: bool

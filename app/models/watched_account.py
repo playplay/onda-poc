@@ -18,6 +18,7 @@ class WatchedAccount(Base):
     type: Mapped[str] = mapped_column(String(20), nullable=False)  # "company"
     linkedin_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     instagram_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tiktok_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     sector: Mapped[str] = mapped_column(String(100), nullable=False)
     company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     is_playplay_client: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

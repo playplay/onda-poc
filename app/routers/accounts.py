@@ -39,8 +39,8 @@ async def create_account(
     body: WatchedAccountCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    if not body.linkedin_url and not body.instagram_url:
-        raise HTTPException(status_code=422, detail="At least one URL (LinkedIn or Instagram) is required.")
+    if not body.linkedin_url and not body.instagram_url and not body.tiktok_url:
+        raise HTTPException(status_code=422, detail="At least one URL (LinkedIn, Instagram, or TikTok) is required.")
 
     account = WatchedAccount(
         id=uuid.uuid4(),
@@ -48,6 +48,7 @@ async def create_account(
         type=body.type,
         linkedin_url=body.linkedin_url,
         instagram_url=body.instagram_url,
+        tiktok_url=body.tiktok_url,
         sector=body.sector,
         company_name=body.company_name,
         is_playplay_client=body.is_playplay_client,
@@ -80,6 +81,8 @@ async def update_account(
         account.sector = body.sector
     if "instagram_url" in body.model_fields_set:
         account.instagram_url = body.instagram_url or None
+    if "tiktok_url" in body.model_fields_set:
+        account.tiktok_url = body.tiktok_url or None
     if body.company_name is not None:
         account.company_name = body.company_name
     if body.is_playplay_client is not None:
