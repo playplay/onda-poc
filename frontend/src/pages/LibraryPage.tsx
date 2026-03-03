@@ -1,7 +1,10 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type { LibraryResponse } from "../types";
 import { getLibrary, getAccounts } from "../api/client";
-import PostCard, { normalizeFormat, formatLabel } from "../components/PostCard";
+import PostCard, { normalizeFormat, formatLabel, shortUseCaseName } from "../components/PostCard";
+import FilterDropdown from "../components/FilterDropdown";
+import PlatformToggle from "../components/PlatformToggle";
+import { getEngagementPriority } from "../utils/engagement";
 
 // Module-level cache with TTL
 let libraryCache: { data: LibraryResponse; ts: number } | null = null;
@@ -14,100 +17,6 @@ function getCached(): LibraryResponse | null {
   return null;
 }
 
-function FilterRow({
-  label,
-  options,
-  selected,
-  onToggle,
-  onClear,
-  chipColor,
-}: {
-  label: string;
-  options: string[];
-  selected: Set<string>;
-  onToggle: (val: string) => void;
-  onClear: () => void;
-  chipColor: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  return (
-    <div className="flex items-center gap-2 min-h-[28px]">
-      {/* Dropdown button — fixed width */}
-      <div className="relative w-[120px] shrink-0" ref={ref}>
-        <button
-          onClick={() => options.length > 0 && setOpen(!open)}
-          className={`w-full px-2.5 py-1 text-xs rounded-md border transition-colors inline-flex items-center justify-between gap-1 ${
-            options.length === 0
-              ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
-              : selected.size > 0
-                ? "bg-gray-50 text-gray-900 border-gray-300 font-medium"
-                : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
-          }`}
-        >
-          <span className="truncate">{label}{selected.size > 0 ? ` (${selected.size})` : ""}</span>
-          <svg className={`w-3 h-3 shrink-0 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-          </svg>
-        </button>
-        {open && (
-          <div className="absolute top-full left-0 mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 w-72 max-h-72 overflow-y-auto">
-            {options.map((opt) => (
-              <label key={opt} className="flex items-center gap-2 px-3 py-1 hover:bg-gray-50 cursor-pointer text-xs">
-                <input
-                  type="checkbox"
-                  checked={selected.has(opt)}
-                  onChange={() => onToggle(opt)}
-                  className="rounded border-gray-300 text-gray-700 focus:ring-gray-400 w-3 h-3"
-                />
-                <span className="truncate flex-1 capitalize">{opt}</span>
-              </label>
-            ))}
-            {selected.size > 0 && (
-              <button
-                onClick={onClear}
-                className="w-full text-left px-3 py-1 text-xs text-gray-500 hover:bg-gray-50 border-t border-gray-100"
-              >
-                Clear all
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Chips */}
-      <div className="flex flex-wrap gap-1 flex-1 min-w-0">
-        {Array.from(selected).map((val) => (
-          <span
-            key={val}
-            className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[11px] rounded-full border ${chipColor}`}
-          >
-            <span className="capitalize truncate max-w-[160px]">{val}</span>
-            <button
-              onClick={() => onToggle(val)}
-              className="opacity-50 hover:opacity-100"
-            >
-              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export default function LibraryPage() {
   const [data, setData] = useState<LibraryResponse | null>(getCached);
   const [loading, setLoading] = useState(!data);
@@ -118,7 +27,7 @@ export default function LibraryPage() {
   const [filterSectors, setFilterSectors] = useState<Set<string>>(new Set());
   const [filterFormats, setFilterFormats] = useState<Set<string>>(new Set());
   const [filterUseCases, setFilterUseCases] = useState<Set<string>>(new Set());
-  const [filterPlatforms, setFilterPlatforms] = useState<Set<string>>(new Set());
+  const [platformFilter, setPlatformFilter] = useState<"all" | "linkedin" | "instagram">("all");
 
   useEffect(() => {
     const cached = getCached();
@@ -180,11 +89,14 @@ export default function LibraryPage() {
     [data]
   );
 
-  const platforms = useMemo(() => {
-    if (!data) return [];
-    const set = new Set<string>();
-    for (const p of data.posts) set.add(p.platform || "linkedin");
-    return Array.from(set).sort();
+  const platformCounts = useMemo(() => {
+    if (!data) return { linkedin: 0, instagram: 0 };
+    const map = { linkedin: 0, instagram: 0 };
+    for (const p of data.posts) {
+      const plat = (p.platform || "linkedin") as "linkedin" | "instagram";
+      if (plat in map) map[plat]++;
+    }
+    return map;
   }, [data]);
 
   const filtered = useMemo(() => {
@@ -202,19 +114,25 @@ export default function LibraryPage() {
     if (filterUseCases.size > 0) {
       result = result.filter((p) => p.claude_use_case && filterUseCases.has(p.claude_use_case));
     }
-    if (filterPlatforms.size > 0) {
-      result = result.filter((p) => filterPlatforms.has(p.platform || "linkedin"));
+    if (platformFilter !== "all") {
+      result = result.filter((p) => (p.platform || "linkedin") === platformFilter);
     }
-    return result;
-  }, [data, filterSectors, filterFormats, filterUseCases, filterPlatforms]);
+    // Sort by label (Viral > Engaging > Neutral), then by engagement_rate desc
+    return [...result].sort((a, b) => {
+      const pa = getEngagementPriority(a, allScores);
+      const pb = getEngagementPriority(b, allScores);
+      if (pa !== pb) return pa - pb;
+      return (b.engagement_rate ?? -1) - (a.engagement_rate ?? -1);
+    });
+  }, [data, allScores, filterSectors, filterFormats, filterUseCases, platformFilter]);
 
-  const hasActiveFilters = filterSectors.size > 0 || filterFormats.size > 0 || filterUseCases.size > 0 || filterPlatforms.size > 0;
+  const hasActiveFilters = filterSectors.size > 0 || filterFormats.size > 0 || filterUseCases.size > 0 || platformFilter !== "all";
 
   const resetAllFilters = () => {
     setFilterSectors(new Set());
     setFilterFormats(new Set());
     setFilterUseCases(new Set());
-    setFilterPlatforms(new Set());
+    setPlatformFilter("all");
   };
 
   const toggle = (setter: React.Dispatch<React.SetStateAction<Set<string>>>) => (val: string) => {
@@ -243,10 +161,37 @@ export default function LibraryPage() {
     );
   }
 
+  // Collect active chips
+  const activeChips: { key: string; label: string; color: string; onRemove: () => void }[] = [];
+  for (const s of filterSectors) {
+    activeChips.push({
+      key: `sector-${s}`,
+      label: s,
+      color: "bg-gray-50 text-gray-700 border-gray-200",
+      onRemove: () => setFilterSectors((prev) => { const n = new Set(prev); n.delete(s); return n; }),
+    });
+  }
+  for (const f of filterFormats) {
+    activeChips.push({
+      key: `fmt-${f}`,
+      label: formatLabel(f),
+      color: "bg-gray-50 text-gray-700 border-gray-200",
+      onRemove: () => setFilterFormats((prev) => { const n = new Set(prev); n.delete(f); return n; }),
+    });
+  }
+  for (const uc of filterUseCases) {
+    activeChips.push({
+      key: `uc-${uc}`,
+      label: shortUseCaseName(uc),
+      color: "bg-gray-50 text-gray-700 border-gray-200",
+      onRemove: () => setFilterUseCases((prev) => { const n = new Set(prev); n.delete(uc); return n; }),
+    });
+  }
+
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Library</h2>
           <div className="flex items-center gap-1.5">
@@ -274,67 +219,76 @@ export default function LibraryPage() {
             </div>
           </div>
         </div>
+        <PlatformToggle
+          value={platformFilter}
+          onChange={setPlatformFilter}
+          counts={platformCounts}
+        />
+      </div>
+
+      {/* Filter buttons */}
+      <div className="flex flex-wrap items-center gap-2">
+        <FilterDropdown
+          label="Sector"
+          options={data.sectors}
+          selected={filterSectors}
+          onToggle={toggle(setFilterSectors)}
+          onClear={() => setFilterSectors(new Set())}
+        />
+        <FilterDropdown
+          label="Format"
+          options={data.format_families}
+          selected={filterFormats}
+          onToggle={toggle(setFilterFormats)}
+          onClear={() => setFilterFormats(new Set())}
+          displayFn={formatLabel}
+        />
+        <FilterDropdown
+          label="Use Case"
+          options={data.use_cases}
+          selected={filterUseCases}
+          onToggle={toggle(setFilterUseCases)}
+          onClear={() => setFilterUseCases(new Set())}
+          displayFn={shortUseCaseName}
+        />
         <button
           onClick={hasActiveFilters ? resetAllFilters : undefined}
-          className={`text-xs transition-colors inline-flex items-center gap-1 ${
+          className={`ml-auto text-[11px] transition-colors inline-flex items-center gap-0.5 ${
             hasActiveFilters
               ? "text-gray-500 hover:text-gray-700 cursor-pointer"
               : "text-gray-300 cursor-default"
           }`}
         >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
           Reset filters
         </button>
       </div>
 
-      {/* Filter rows — stacked with dividers */}
-      <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg bg-white px-2.5 py-0.5">
-        <div className="py-1.5">
-          <FilterRow
-            label="Platform"
-            options={platforms}
-            selected={filterPlatforms}
-            onToggle={toggle(setFilterPlatforms)}
-            onClear={() => setFilterPlatforms(new Set())}
-            chipColor="bg-gray-50 text-gray-700 border-gray-200"
-          />
-        </div>
-        <div className="py-1.5">
-          <FilterRow
-            label="Sector"
-            options={data.sectors}
-            selected={filterSectors}
-            onToggle={toggle(setFilterSectors)}
-            onClear={() => setFilterSectors(new Set())}
-            chipColor="bg-gray-50 text-gray-700 border-gray-200"
-          />
-        </div>
-        <div className="py-1.5">
-          <FilterRow
-            label="Format"
-            options={data.format_families}
-            selected={filterFormats}
-            onToggle={toggle(setFilterFormats)}
-            onClear={() => setFilterFormats(new Set())}
-            chipColor="bg-gray-50 text-gray-700 border-gray-200"
-          />
-        </div>
-        <div className="py-1.5">
-          <FilterRow
-            label="Use Case"
-            options={data.use_cases}
-            selected={filterUseCases}
-            onToggle={toggle(setFilterUseCases)}
-            onClear={() => setFilterUseCases(new Set())}
-            chipColor="bg-gray-50 text-gray-700 border-gray-200"
-          />
-        </div>
+      {/* Chips area — always reserved so the page doesn't jump */}
+      <div className="min-h-[28px] flex flex-wrap items-center gap-1 -mt-2">
+        {activeChips.length > 0 ? (
+          activeChips.map((chip) => (
+            <span
+              key={chip.key}
+              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[11px] rounded-full border ${chip.color}`}
+            >
+              <span className="truncate max-w-[160px]">{chip.label}</span>
+              <button
+                onClick={chip.onRemove}
+                className="opacity-50 hover:opacity-100 ml-0.5"
+              >
+                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+          ))
+        ) : (
+          <span className="text-xs text-gray-400">{filtered.length} posts</span>
+        )}
       </div>
-
-      {/* Post count */}
-      <p className="text-xs text-gray-400">{filtered.length} posts</p>
 
       {/* Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -347,6 +301,7 @@ export default function LibraryPage() {
             accountTypes={accountTypes}
             playplaySlugs={playplaySlugs}
             showSector
+            showUseCase
           />
         ))}
       </div>

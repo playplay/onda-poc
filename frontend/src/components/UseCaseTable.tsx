@@ -1,4 +1,5 @@
 import { FAMILY_LABELS, type UseCasePivotRow } from "../types";
+import { shortUseCaseName } from "./PostCard";
 
 const FORMAT_HEADER_COLORS: Record<string, string> = {
   video:    "text-purple-700",
@@ -75,8 +76,8 @@ export default function UseCaseTable({ rows, formatFamilies, status, onCellClick
               key={row.use_case}
               className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
             >
-              <td className="py-2 pr-4 text-gray-700 capitalize">
-                {row.use_case}
+              <td className="py-2 pr-4 text-gray-700">
+                {shortUseCaseName(row.use_case)}
               </td>
               {formatFamilies.map((f) => {
                 const count = row.counts_by_format[f];

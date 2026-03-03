@@ -10,13 +10,60 @@ import {
 import type { ScrapeJob, Post, UseCasePivotResponse, UseCasePivotRow } from "../types";
 import PostGallery from "../components/PostGallery";
 import UseCaseTable from "../components/UseCaseTable";
-import { normalizeFormat } from "../components/PostCard";
+import PlatformToggle from "../components/PlatformToggle";
+import FilterDropdown from "../components/FilterDropdown";
+import { normalizeFormat, mapLookup, setHas } from "../components/PostCard";
 
 // Module-level cache for completed job data — survives re-mounts
 const jobDataCache = new Map<
   string,
-  { posts: Post[]; useCasePivot?: UseCasePivotResponse }
+  {
+    posts: Post[];
+    useCasePivot?: UseCasePivotResponse;
+    accountNames: Map<string, string>;
+    accountTypes: Map<string, "company" | "person">;
+    playplaySlugs: Set<string>;
+  }
 >();
+
+// Sector-level accounts cache — shared across jobs of same sector
+const accountsCache = new Map<
+  string,
+  { names: Map<string, string>; types: Map<string, "company" | "person">; slugs: Set<string> }
+>();
+
+function buildAccountMaps(accounts: { name: string; type: "company" | "person"; linkedin_url?: string | null; instagram_url?: string | null; is_playplay_client?: boolean }[]) {
+  const names = new Map<string, string>();
+  const types = new Map<string, "company" | "person">();
+  const slugs = new Set<string>();
+  for (const a of accounts) {
+    const match = a.linkedin_url?.match(/\/(in|company)\/([^/]+)/);
+    const slug = match ? match[2] : "";
+    if (slug) {
+      names.set(slug, a.name);
+      types.set(slug, a.type);
+    }
+    names.set(a.name, a.name);
+    types.set(a.name, a.type);
+    names.set(a.name.toLowerCase(), a.name);
+    types.set(a.name.toLowerCase(), a.type);
+    if (a.instagram_url) {
+      const igMatch = a.instagram_url.match(/instagram\.com\/([^/?\s]+)/);
+      if (igMatch) {
+        const igUser = igMatch[1].toLowerCase();
+        names.set(igUser, a.name);
+        types.set(igUser, a.type);
+        if (a.is_playplay_client) slugs.add(igUser);
+      }
+    }
+    if (a.is_playplay_client) {
+      if (slug) slugs.add(slug);
+      slugs.add(a.name);
+      slugs.add(a.name.toLowerCase());
+    }
+  }
+  return { names, types, slugs };
+}
 
 interface Props {
   jobs: ScrapeJob[];
@@ -39,18 +86,31 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
   // Gallery filters set from UseCaseTable navigation
   const [galleryFilterFormat, setGalleryFilterFormat] = useState<string | null>(null);
   const [galleryFilterUseCases, setGalleryFilterUseCases] = useState<Set<string>>(new Set());
-  const [ucPlatformFilter, setUcPlatformFilter] = useState<string | null>(null);
+  const [platformFilter, setPlatformFilter] = useState<"all" | "linkedin" | "instagram">("all");
+  const [ucAccountFilter, setUcAccountFilter] = useState<Set<string>>(new Set());
   const [playplaySlugs, setPlayplaySlugs] = useState<Set<string>>(new Set());
   const [accountNames, setAccountNames] = useState<Map<string, string>>(new Map());
   const [accountTypes, setAccountTypes] = useState<Map<string, "company" | "person">>(new Map());
 
-  // Load completed job data
+  // Load completed job data (posts + pivot + accounts — all together)
   const loadCompletedData = useCallback(
-    async (id: string) => {
-      const [postsData, pivotData] = await Promise.all([
+    async (id: string, sector: string | null) => {
+      // Load accounts from cache or API
+      let accts = sector ? accountsCache.get(sector) : undefined;
+      const acctPromise = (!accts && sector)
+        ? getAccounts(sector).then((raw) => {
+            const built = buildAccountMaps(raw);
+            accountsCache.set(sector!, built);
+            return built;
+          })
+        : Promise.resolve(accts || { names: new Map<string, string>(), types: new Map<string, "company" | "person">(), slugs: new Set<string>() });
+
+      const [postsData, pivotData, acctData] = await Promise.all([
         getPosts(id),
         getUseCasePivot(id),
+        acctPromise,
       ]);
+
       // Deduplicate posts by post_url
       const seen = new Set<string>();
       const uniquePosts = postsData.filter((p) => {
@@ -58,13 +118,21 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
         seen.add(p.post_url);
         return true;
       });
+
+      // Set ALL state at once — no flash
       setPosts(uniquePosts);
       setUseCasePivot(pivotData);
+      setAccountNames(acctData.names);
+      setAccountTypes(acctData.types);
+      setPlayplaySlugs(acctData.slugs);
 
       // Populate cache
       jobDataCache.set(id, {
         posts: uniquePosts,
         useCasePivot: pivotData,
+        accountNames: acctData.names,
+        accountTypes: acctData.types,
+        playplaySlugs: acctData.slugs,
       });
 
       // If no classifications yet, trigger in background
@@ -76,7 +144,6 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
               getPosts(id),
             ]);
             setUseCasePivot(updated);
-            // Refresh posts so claude_use_case is available for Gallery filter
             const refreshSeen = new Set<string>();
             const refreshedUnique = refreshedPosts.filter((p) => {
               if (!p.post_url || refreshSeen.has(p.post_url)) return false;
@@ -91,7 +158,6 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
           })
           .catch((err) => {
             console.error("Use case classification failed:", err);
-            // Clear cache so next visit retries classification
             jobDataCache.delete(id);
           });
       }
@@ -105,61 +171,22 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
     if (cached) {
       setPosts(cached.posts);
       setUseCasePivot(cached.useCasePivot ?? null);
+      setAccountNames(cached.accountNames);
+      setAccountTypes(cached.accountTypes);
+      setPlayplaySlugs(cached.playplaySlugs);
     } else {
       setPosts([]);
       setUseCasePivot(null);
     }
   }, [jobId]);
 
-  // Build account name map + PlayPlay slugs from watched accounts
-  useEffect(() => {
-    if (!job?.sector) return;
-    getAccounts(job.sector).then((accounts) => {
-      const names = new Map<string, string>();
-      const slugs = new Set<string>();
-      const types = new Map<string, "company" | "person">();
-      for (const a of accounts) {
-        const match = a.linkedin_url?.match(/\/(in|company)\/([^/]+)/);
-        const slug = match ? match[2] : "";
-        if (!slug) continue;
-        // Map by slug (companies + new person scrapes use slug as author_name)
-        names.set(slug, a.name);
-        types.set(slug, a.type);
-        // Also map by display name (old Apify person posts use full name as author_name)
-        names.set(a.name, a.name);
-        types.set(a.name, a.type);
-        // Case-insensitive fallback for name mismatches (e.g. "Antoine le Nel" vs "Antoine Le Nel")
-        names.set(a.name.toLowerCase(), a.name);
-        types.set(a.name.toLowerCase(), a.type);
-        // Map by Instagram username (IG posts use username as author_name)
-        if (a.instagram_url) {
-          const igMatch = a.instagram_url.match(/instagram\.com\/([^/?\s]+)/);
-          if (igMatch) {
-            const igUser = igMatch[1].toLowerCase();
-            names.set(igUser, a.name);
-            types.set(igUser, a.type);
-            if (a.is_playplay_client) slugs.add(igUser);
-          }
-        }
-        if (a.is_playplay_client) {
-          slugs.add(slug);
-          slugs.add(a.name);
-          slugs.add(a.name.toLowerCase());
-        }
-      }
-      setAccountNames(names);
-      setAccountTypes(types);
-      setPlayplaySlugs(slugs);
-    });
-  }, [job?.sector]);
-
   // Load data when job is completed and not cached (or cache has stale classification)
   useEffect(() => {
     if (!jobId || job?.status !== "completed") return;
     const cached = jobDataCache.get(jobId);
     if (cached && cached.useCasePivot?.status === "ready") return;
-    loadCompletedData(jobId);
-  }, [jobId, job?.status, loadCompletedData]);
+    loadCompletedData(jobId, job?.sector ?? null);
+  }, [jobId, job?.status, job?.sector, loadCompletedData]);
 
   // Poll only for in-progress jobs (triggers backend processing)
   useEffect(() => {
@@ -175,20 +202,59 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
     return () => clearInterval(interval);
   }, [jobId, job?.status, refreshJobs]);
 
-  // Platform counts for the Use Cases tab filter
-  const ucPlatformCounts = useMemo(() => {
-    const map = new Map<string, number>();
+  // Platform counts for toggle
+  const platformCounts = useMemo(() => {
+    const map = { linkedin: 0, instagram: 0 };
     for (const p of posts) {
-      const plat = p.platform || "linkedin";
-      map.set(plat, (map.get(plat) || 0) + 1);
+      const plat = (p.platform || "linkedin") as "linkedin" | "instagram";
+      if (plat in map) map[plat]++;
     }
     return map;
   }, [posts]);
 
-  // When a platform filter is active on Use Cases tab, recompute pivot from posts
+  // Account type options & counts for the Use Cases tab filter
+  const ucAccountOptions = useMemo(() => {
+    const counts = { company: 0, person: 0, playplay: 0 };
+    for (const p of posts) {
+      const t = mapLookup(accountTypes, p.author_name || "");
+      if (t === "company") counts.company++;
+      else if (t === "person") counts.person++;
+      if (setHas(playplaySlugs, p.author_name || "")) counts.playplay++;
+    }
+    const opts: string[] = [];
+    if (counts.company > 0) opts.push("company");
+    if (counts.person > 0) opts.push("person");
+    if (counts.playplay > 0) opts.push("playplay");
+    return { opts, counts };
+  }, [posts, accountTypes, playplaySlugs]);
+
+  const ucAccountCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+    map.set("company", ucAccountOptions.counts.company);
+    map.set("person", ucAccountOptions.counts.person);
+    map.set("playplay", ucAccountOptions.counts.playplay);
+    return map;
+  }, [ucAccountOptions]);
+
+  // When filters are active, recompute pivot from posts
+  const hasUcFilters = platformFilter !== "all" || ucAccountFilter.size > 0;
   const filteredPivot = useMemo(() => {
-    if (!ucPlatformFilter || !useCasePivot) return useCasePivot;
-    const filtered = posts.filter((p) => (p.platform || "linkedin") === ucPlatformFilter);
+    if (!hasUcFilters || !useCasePivot) return useCasePivot;
+    let filtered = posts;
+    if (platformFilter !== "all") {
+      filtered = filtered.filter((p) => (p.platform || "linkedin") === platformFilter);
+    }
+    if (ucAccountFilter.size > 0) {
+      filtered = filtered.filter((p) => {
+        const author = p.author_name || "";
+        for (const f of ucAccountFilter) {
+          if (f === "playplay" && setHas(playplaySlugs, author)) return true;
+          if (f === "company" && mapLookup(accountTypes, author) === "company") return true;
+          if (f === "person" && mapLookup(accountTypes, author) === "person") return true;
+        }
+        return false;
+      });
+    }
     const byUseCase = new Map<string, { counts: Record<string, number>; total: number; bestUrl: string | null; bestEng: number }>();
     const fmtSet = new Set<string>();
     for (const p of filtered) {
@@ -223,7 +289,7 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
       format_families: useCasePivot.format_families.filter((f) => fmtSet.has(f)),
       status: useCasePivot.status,
     } as UseCasePivotResponse;
-  }, [ucPlatformFilter, useCasePivot, posts]);
+  }, [hasUcFilters, platformFilter, ucAccountFilter, useCasePivot, posts, accountTypes, playplaySlugs]);
 
   const handleUseCaseCellClick = useCallback(
     (useCase: string | null, format: string | null) => {
@@ -311,8 +377,8 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
       {/* Results */}
       {job.status === "completed" && (
         <>
-          {/* Tabs */}
-          <div className="flex gap-4 border-b border-gray-200">
+          {/* Tabs + PlatformToggle */}
+          <div className="flex items-center gap-4 border-b border-gray-200">
             <button
               onClick={() => setTab("gallery")}
               className={`px-1 py-2 text-sm font-medium border-b-2 transition-colors ${
@@ -333,46 +399,34 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
             >
               Use Cases
             </button>
+            <div className="ml-auto pb-1">
+              <PlatformToggle
+                value={platformFilter}
+                onChange={setPlatformFilter}
+                counts={platformCounts}
+              />
+            </div>
           </div>
 
           {tab === "usecases" && (
             <div className="space-y-4">
-              {/* Platform filter for Use Cases tab */}
-              <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg bg-white px-2.5 py-0.5">
-                <div className="py-1.5 flex items-center gap-2 min-h-[28px]">
-                  <span className="w-[120px] shrink-0 px-2.5 py-1 text-xs rounded-md border border-gray-200 bg-white text-gray-600 inline-flex items-center">
-                    Platform
-                  </span>
-                  <div className="flex flex-wrap items-center gap-1.5 flex-1">
-                    {([
-                      { key: "linkedin", label: "LinkedIn", count: ucPlatformCounts.get("linkedin") || 0, active: "bg-blue-50 text-blue-700 border-blue-200" },
-                      { key: "instagram", label: "Instagram", count: ucPlatformCounts.get("instagram") || 0, active: "bg-pink-50 text-pink-600 border-pink-200" },
-                    ]).filter(({ count }) => count > 0).map(({ key, label, count, active }) => (
-                      <button
-                        key={key}
-                        onClick={() => setUcPlatformFilter(ucPlatformFilter === key ? null : key)}
-                        className={`px-2 py-0.5 text-[11px] rounded-full border transition-colors ${
-                          ucPlatformFilter === key
-                            ? active
-                            : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
-                        }`}
-                      >
-                        {label} ({count})
-                      </button>
-                    ))}
-                    {ucPlatformFilter && (
-                      <button
-                        onClick={() => setUcPlatformFilter(null)}
-                        className="ml-auto text-[11px] text-gray-500 hover:text-gray-700 transition-colors inline-flex items-center gap-0.5"
-                      >
-                        <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                        Reset
-                      </button>
-                    )}
-                  </div>
-                </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <FilterDropdown
+                  label="Account"
+                  options={ucAccountOptions.opts}
+                  selected={ucAccountFilter}
+                  onToggle={(val) => {
+                    setUcAccountFilter((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(val)) next.delete(val);
+                      else next.add(val);
+                      return next;
+                    });
+                  }}
+                  onClear={() => setUcAccountFilter(new Set())}
+                  displayFn={(v) => v === "company" ? "Companies" : v === "person" ? "Persons" : "PlayPlay Client"}
+                  countMap={ucAccountCountMap}
+                />
               </div>
               <UseCaseTable
                 rows={filteredPivot?.rows ?? []}
@@ -391,6 +445,9 @@ export default function ResultsPage({ jobs, refreshJobs }: Props) {
               externalFilterFormat={galleryFilterFormat}
               externalFilterUseCases={galleryFilterUseCases}
               onFiltersApplied={() => { setGalleryFilterFormat(null); setGalleryFilterUseCases(new Set()); }}
+              filterPlatform={platformFilter === "all" ? null : platformFilter}
+              showSector
+              showUseCase
             />
           )}
         </>
