@@ -198,7 +198,24 @@ export default function PostCard({ post, allScores, accountTypes, accountNames, 
               alt=""
               loading="lazy"
               className="w-full h-full object-cover"
+              onError={(e) => {
+                const img = e.currentTarget;
+                img.style.display = "none";
+                const fallback = img.parentElement?.querySelector<HTMLElement>("[data-img-fallback]");
+                if (fallback) fallback.style.display = "flex";
+              }}
             />
+            <div
+              data-img-fallback
+              className="absolute inset-0 items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200"
+              style={{ display: "none" }}
+            >
+              {post.platform === "instagram" ? (
+                <InstagramIcon className="w-10 h-10 text-gray-300" />
+              ) : (
+                <LinkedInIcon className="w-10 h-10 text-gray-300" />
+              )}
+            </div>
             {isVideoPost(post) && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                 <div className="w-12 h-12 rounded-full bg-black/60 flex items-center justify-center backdrop-blur-sm">
