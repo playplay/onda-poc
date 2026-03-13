@@ -32,6 +32,14 @@ class PostOut(BaseModel):
     publication_date: datetime | None
     claude_use_case: str | None = None
     created_at: datetime
+    playplay_flag: bool = False
+    playplay_flag_by: str | None = None
+    playplay_flag_name: str | None = None
+    playplay_flag_at: datetime | None = None
+    playplay_design_flag: bool = False
+    playplay_design_flag_by: str | None = None
+    playplay_design_flag_name: str | None = None
+    playplay_design_flag_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

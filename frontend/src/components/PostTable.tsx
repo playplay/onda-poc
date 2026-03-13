@@ -11,9 +11,10 @@ interface Props {
   accountNames?: Map<string, string>;
   accountTypes?: Map<string, "company" | "person">;
   companyNames?: Map<string, string>;
+  onOpenModal?: (post: Post) => void;
 }
 
-type ColumnKey = "account" | "format" | "engagement" | "sector" | "useCase";
+type ColumnKey = "account" | "parentAccount" | "format" | "engagement" | "sector" | "useCase";
 type SortDir = "asc" | "desc";
 
 function SortableHeader({
@@ -44,7 +45,7 @@ function SortableHeader({
   );
 }
 
-export default function PostTable({ posts, accountNames, accountTypes, companyNames }: Props) {
+export default function PostTable({ posts, accountNames, accountTypes, companyNames, onOpenModal }: Props) {
   const [sortColumn, setSortColumn] = useState<ColumnKey | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDir>("asc");
 
@@ -60,8 +61,8 @@ export default function PostTable({ posts, accountNames, accountTypes, companyNa
           const pb = getEngagementPriority(b, allScores);
           cmp = pa - pb || (b.engagement_rate ?? 0) - (a.engagement_rate ?? 0);
         } else {
-          const va = getColValue(a, sortColumn, accountNames).toLowerCase();
-          const vb = getColValue(b, sortColumn, accountNames).toLowerCase();
+          const va = getColValue(a, sortColumn, accountNames, companyNames).toLowerCase();
+          const vb = getColValue(b, sortColumn, accountNames, companyNames).toLowerCase();
           cmp = va < vb ? -1 : va > vb ? 1 : 0;
         }
         return sortDirection === "desc" ? -cmp : cmp;
@@ -89,6 +90,7 @@ export default function PostTable({ posts, accountNames, accountTypes, companyNa
 
   const columns: { key: ColumnKey; label: string }[] = [
     { key: "account", label: "Account" },
+    { key: "parentAccount", label: "Parent Account" },
     { key: "format", label: "Format" },
     { key: "engagement", label: "Engagement" },
     { key: "sector", label: "Sector" },
@@ -113,7 +115,7 @@ export default function PostTable({ posts, accountNames, accountTypes, companyNa
           </thead>
           <tbody className="divide-y divide-gray-100">
             {displayed.map((post) => {
-              const displayName = mapLookup(accountNames, post.author_name || "") || post.author_name || "Unknown";
+              const displayName = mapLookup(accountNames, post.author_name || "") || post.author_company || post.author_name || "Unknown";
               const authorType = mapLookup(accountTypes, post.author_name || "");
               const company = mapLookup(companyNames, post.author_name || "");
               const fmt = normalizeFormat(post.format_family);
@@ -129,9 +131,7 @@ export default function PostTable({ posts, accountNames, accountTypes, companyNa
                 <tr
                   key={post.id}
                   className="h-14 hover:bg-gray-50 cursor-pointer transition-colors"
-                  onClick={() => {
-                    if (post.post_url) window.open(post.post_url, "_blank");
-                  }}
+                  onClick={() => onOpenModal ? onOpenModal(post) : (post.post_url && window.open(post.post_url, "_blank"))}
                 >
                   {/* Account */}
                   <td className="px-3 py-2">
@@ -150,6 +150,10 @@ export default function PostTable({ posts, accountNames, accountTypes, companyNa
                         )}
                       </div>
                     </div>
+                  </td>
+                  {/* Parent Account */}
+                  <td className="px-3 py-2">
+                    <span className="text-xs text-gray-500 truncate max-w-[140px] block">{company || "\u2014"}</span>
                   </td>
                   {/* Format */}
                   <td className="px-3 py-2">
@@ -180,7 +184,7 @@ export default function PostTable({ posts, accountNames, accountTypes, companyNa
             })}
             {displayed.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-gray-400 text-sm">
+                <td colSpan={6} className="px-3 py-8 text-center text-gray-400 text-sm">
                   No posts match the current filters.
                 </td>
               </tr>
@@ -192,10 +196,12 @@ export default function PostTable({ posts, accountNames, accountTypes, companyNa
   );
 }
 
-function getColValue(post: Post, col: ColumnKey, accountNames?: Map<string, string>): string {
+function getColValue(post: Post, col: ColumnKey, accountNames?: Map<string, string>, companyNames?: Map<string, string>): string {
   switch (col) {
     case "account":
-      return mapLookup(accountNames, post.author_name || "") || post.author_name || "Unknown";
+      return mapLookup(accountNames, post.author_name || "") || post.author_company || post.author_name || "Unknown";
+    case "parentAccount":
+      return mapLookup(companyNames, post.author_name || "") || "";
     case "format":
       return normalizeFormat(post.format_family) || "text";
     case "engagement":

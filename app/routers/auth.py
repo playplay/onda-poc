@@ -19,20 +19,36 @@ class LoginRequest(BaseModel):
 
 @router.post("/login")
 async def login(body: LoginRequest, request: Request):
-    if body.email != settings.AUTH_EMAIL or body.password != settings.AUTH_PASSWORD:
+    # Multi-user: check against USERS list
+    matched_user = None
+    for u in settings.user_list:
+        if u["email"] == body.email and u["password"] == body.password:
+            matched_user = u
+            break
+
+    # Fallback: legacy single-user auth
+    if not matched_user:
+        if body.email == settings.AUTH_EMAIL and body.password == settings.AUTH_PASSWORD:
+            matched_user = {"email": body.email, "name": "Admin", "role": "admin"}
+
+    if not matched_user:
         return JSONResponse(status_code=401, content={"detail": "Invalid credentials"})
 
     exp_days = 30 if body.remember else 1
     payload = {
-        "email": body.email,
+        "email": matched_user["email"],
+        "name": matched_user.get("name", ""),
+        "role": matched_user.get("role", "user"),
         "exp": datetime.now(timezone.utc) + timedelta(days=exp_days),
     }
     token = jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
 
-    # Only set Secure flag on actual HTTPS deployments (Vercel)
-    # POSTGRES_URL alone doesn't mean HTTPS — check for Vercel env
     secure = settings.is_serverless and bool(settings.VERCEL_OIDC_TOKEN)
-    response = JSONResponse(content={"email": body.email})
+    response = JSONResponse(content={
+        "email": matched_user["email"],
+        "name": matched_user.get("name", ""),
+        "role": matched_user.get("role", "user"),
+    })
     response.set_cookie(
         key="onda_token",
         value=token,

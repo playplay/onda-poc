@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, DateTime, Text
+from sqlalchemy import Boolean, String, Integer, DateTime, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,5 +29,15 @@ class ScrapeJob(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Scrape params (persisted for use during fetch)
+    scrape_posts_per_account: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    scrape_by_date: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Custom search fields
+    is_custom_search: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
+    user_email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    custom_account_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    custom_account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    custom_account_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # "company" | "person"
+    scrape_date_since_months: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1, 3, 6, 12, None=all
 
     posts = relationship("Post", back_populates="scrape_job", lazy="selectin")

@@ -3,17 +3,14 @@ import type {
   ScrapeRequest,
   ScrapeJob,
   Post,
-  RankedTrend,
-  GeminiAnalysis,
-  AnalysisStartResult,
-  AnalysisProgressResult,
-  TrendDetailResponse,
   WatchedAccount,
   WatchedAccountCreate,
   WatchedAccountUpdate,
-  UseCasePivotResponse,
-  UseCaseClassifyResult,
   LibraryResponse,
+  UserInfo,
+  CollectionInfo,
+  CustomSearchCreate,
+  CustomSearchResult,
 } from "../types";
 
 const api = axios.create({
@@ -54,65 +51,6 @@ export async function getPosts(
   const { data } = await api.get<Post[]>("/posts", {
     params: { scrape_job_id: jobId, ...opts },
   });
-  return data;
-}
-
-export async function getRanking(
-  jobId: string,
-  limit = 10
-): Promise<RankedTrend[]> {
-  const { data } = await api.get<RankedTrend[]>("/posts/ranking", {
-    params: { scrape_job_id: jobId, limit },
-  });
-  return data;
-}
-
-export async function startAnalysis(
-  postIds: string[]
-): Promise<AnalysisStartResult> {
-  const { data } = await api.post<AnalysisStartResult>("/analysis", {
-    post_ids: postIds,
-  });
-  return data;
-}
-
-export async function processNextAnalysis(
-  postIds: string[]
-): Promise<AnalysisProgressResult> {
-  const { data } = await api.post<AnalysisProgressResult>(
-    "/analysis/process-next",
-    { post_ids: postIds }
-  );
-  return data;
-}
-
-export async function getAnalysis(
-  postId: string
-): Promise<GeminiAnalysis | null> {
-  try {
-    const { data } = await api.get<GeminiAnalysis>(`/analysis/${postId}`);
-    return data;
-  } catch {
-    return null;
-  }
-}
-
-export async function getAnalysesByJob(
-  jobId: string
-): Promise<GeminiAnalysis[]> {
-  const { data } = await api.get<GeminiAnalysis[]>("/analysis", {
-    params: { scrape_job_id: jobId },
-  });
-  return data;
-}
-
-export async function getTrendDetail(
-  jobId: string,
-  rank: number
-): Promise<TrendDetailResponse> {
-  const { data } = await api.get<TrendDetailResponse>(
-    `/trends/${jobId}/rank/${rank}/posts`
-  );
   return data;
 }
 
@@ -175,86 +113,112 @@ export async function deleteAccount(id: string): Promise<void> {
   await api.delete(`/accounts/${id}`);
 }
 
-// --- Use Cases ---
-
-export async function classifyUseCases(
-  jobId: string,
-  force = false
-): Promise<UseCaseClassifyResult> {
-  const { data } = await api.post<UseCaseClassifyResult>("/use-cases/classify", {
-    scrape_job_id: jobId,
-    force,
-  });
-  return data;
-}
-
-export async function getUseCasePivot(
-  jobId: string
-): Promise<UseCasePivotResponse> {
-  const { data } = await api.get<UseCasePivotResponse>("/use-cases/pivot", {
-    params: { scrape_job_id: jobId },
-  });
-  return data;
-}
-
 // --- Library ---
 
-export async function getLibrary(): Promise<LibraryResponse> {
-  const { data } = await api.get<LibraryResponse>("/library");
+export async function getLibrary(portfolio = false): Promise<LibraryResponse> {
+  const { data } = await api.get<LibraryResponse>("/library", {
+    params: portfolio ? { portfolio: true } : {},
+  });
   return data;
 }
 
-export function streamTrendSummary(
-  jobId: string,
-  rank: number,
-  onChunk: (text: string) => void,
-  onDone: () => void,
-  onError: (msg: string) => void
-): () => void {
-  const eventSource = new EventSource(`/api/trends/${jobId}/rank/${rank}/summary`);
+// --- Users ---
 
-  // Inactivity timeout: close if no data received for 60s
-  let inactivityTimer = setTimeout(() => {
-    onError("Summary timed out (no data for 60s)");
-    eventSource.close();
-  }, 60_000);
-
-  const resetInactivityTimer = () => {
-    clearTimeout(inactivityTimer);
-    inactivityTimer = setTimeout(() => {
-      onError("Summary timed out (no data for 60s)");
-      eventSource.close();
-    }, 60_000);
-  };
-
-  eventSource.onmessage = (event) => {
-    resetInactivityTimer();
-    try {
-      const data = JSON.parse(event.data);
-      if (data.type === "chunk") {
-        onChunk(data.content);
-      } else if (data.type === "done") {
-        clearTimeout(inactivityTimer);
-        onDone();
-        eventSource.close();
-      } else if (data.type === "error") {
-        clearTimeout(inactivityTimer);
-        onError(data.message);
-        eventSource.close();
-      }
-    } catch {
-      // ignore parse errors
-    }
-  };
-
-  eventSource.onerror = () => {
-    clearTimeout(inactivityTimer);
-    onError("Connection lost");
-    eventSource.close();
-  };
-
-  return () => {
-    clearTimeout(inactivityTimer);
-    eventSource.close();
-  };
+export async function getUsers(): Promise<UserInfo[]> {
+  const { data } = await api.get<UserInfo[]>("/accounts/users");
+  return data;
 }
+
+export async function createUser(name: string, email: string): Promise<UserInfo> {
+  const { data } = await api.post<UserInfo>("/accounts/users", { name, email });
+  return data;
+}
+
+// --- Collections ---
+
+export async function getCollections(): Promise<CollectionInfo[]> {
+  const { data } = await api.get<CollectionInfo[]>("/collections");
+  return data;
+}
+
+export async function createCollection(name: string): Promise<CollectionInfo> {
+  const { data } = await api.post<CollectionInfo>("/collections", { name });
+  return data;
+}
+
+export async function deleteCollection(id: number): Promise<void> {
+  await api.delete(`/collections/${id}`);
+}
+
+export async function addPostToCollection(collectionId: number, postId: string): Promise<void> {
+  await api.post(`/collections/${collectionId}/posts`, { post_id: postId });
+}
+
+export async function removePostFromCollection(collectionId: number, postId: string): Promise<void> {
+  await api.delete(`/collections/${collectionId}/posts/${postId}`);
+}
+
+export async function getCollectionPosts(collectionId: number): Promise<Post[]> {
+  const { data } = await api.get<Post[]>(`/collections/${collectionId}/posts`);
+  return data;
+}
+
+export async function getSavedPostIds(): Promise<Record<number, string[]>> {
+  const { data } = await api.get<Record<number, string[]>>("/collections/saved-post-ids");
+  return data;
+}
+
+// --- Favorites ---
+
+export async function getFavoriteIds(): Promise<string[]> {
+  const { data } = await api.get<string[]>("/favorites/ids");
+  return data;
+}
+
+export async function getFavoritePosts(): Promise<Post[]> {
+  const { data } = await api.get<Post[]>("/favorites/posts");
+  return data;
+}
+
+export async function addFavorite(postId: string): Promise<void> {
+  await api.post("/favorites", { post_id: postId });
+}
+
+export async function removeFavorite(postId: string): Promise<void> {
+  await api.delete(`/favorites/${postId}`);
+}
+
+export async function importFavoriteByUrl(url: string): Promise<Post> {
+  const { data } = await api.post<Post>("/favorites/import", { url }, { timeout: 90_000 });
+  return data;
+}
+
+export async function setPlayPlayFlag(
+  postId: string,
+  flagType: "playplay" | "playplay_design",
+  value: boolean
+): Promise<Post> {
+  const { data } = await api.patch<Post>(`/posts/${postId}/playplay-flag`, {
+    flag_type: flagType,
+    value,
+  });
+  return data;
+}
+
+// --- Custom Search ---
+
+export async function createCustomSearch(body: CustomSearchCreate): Promise<ScrapeJob> {
+  const { data } = await api.post<ScrapeJob>("/custom-search", body);
+  return data;
+}
+
+export async function listCustomSearches(): Promise<ScrapeJob[]> {
+  const { data } = await api.get<ScrapeJob[]>("/custom-search");
+  return data;
+}
+
+export async function getCustomSearch(jobId: string): Promise<CustomSearchResult> {
+  const { data } = await api.get<CustomSearchResult>(`/custom-search/${jobId}`);
+  return data;
+}
+

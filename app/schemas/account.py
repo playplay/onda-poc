@@ -15,6 +15,7 @@ class WatchedAccountCreate(BaseModel):
     sector: str = Field(..., min_length=1)
     company_name: str | None = None
     is_playplay_client: bool = False
+    assigned_cs_email: str | None = None
 
 
 class WatchedAccountUpdate(BaseModel):
@@ -26,6 +27,7 @@ class WatchedAccountUpdate(BaseModel):
     sector: str | None = None
     company_name: str | None = None
     is_playplay_client: bool | None = None
+    assigned_cs_email: str | None = None
 
 
 class WatchedAccountOut(BaseModel):
@@ -38,6 +40,7 @@ class WatchedAccountOut(BaseModel):
     sector: str
     company_name: str | None = None
     is_playplay_client: bool
+    assigned_cs_email: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

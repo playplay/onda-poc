@@ -23,4 +23,5 @@ class WatchedAccount(Base):
     company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     is_playplay_client: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     follower_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    assigned_cs_email: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

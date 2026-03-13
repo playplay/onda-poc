@@ -38,7 +38,7 @@ class UseCasePivotRow(BaseModel):
 class UseCasePivotResponse(BaseModel):
     rows: list[UseCasePivotRow]
     format_families: list[str]
-    status: str  # "ready" | "classifying" | "empty"
+    status: str  # "ready" | "partial" | "classifying" | "empty"
 
 
 @router.post("/use-cases/classify", response_model=ClassifyResponse)
@@ -165,8 +165,10 @@ async def get_use_case_pivot(
         if f not in format_families:
             format_families.append(f)
 
+    status = "ready" if len(classified) == len(all_posts) else "partial"
+
     return UseCasePivotResponse(
         rows=rows,
         format_families=format_families,
-        status="ready",
+        status=status,
     )

@@ -5,12 +5,13 @@ interface Props {
 
 export default function ViewSwitch({ value, onChange }: Props) {
   return (
-    <div className="inline-flex rounded-md border border-gray-200 overflow-hidden">
+    <div className="inline-flex rounded-md bg-gray-100 p-0.5 gap-0.5">
       <button
-        onClick={() => onChange("gallery")}
-        className={`p-1.5 transition-colors ${
+        type="button"
+        onPointerDown={(e) => { e.stopPropagation(); onChange("gallery"); }}
+        className={`p-1.5 rounded transition-colors ${
           value === "gallery"
-            ? "bg-gray-100 text-gray-900"
+            ? "bg-white text-gray-900 shadow-sm"
             : "text-gray-400 hover:text-gray-600"
         }`}
         title="Gallery view"
@@ -20,10 +21,11 @@ export default function ViewSwitch({ value, onChange }: Props) {
         </svg>
       </button>
       <button
-        onClick={() => onChange("table")}
-        className={`p-1.5 transition-colors border-l border-gray-200 ${
+        type="button"
+        onPointerDown={(e) => { e.stopPropagation(); onChange("table"); }}
+        className={`p-1.5 rounded transition-colors ${
           value === "table"
-            ? "bg-gray-100 text-gray-900"
+            ? "bg-white text-gray-900 shadow-sm"
             : "text-gray-400 hover:text-gray-600"
         }`}
         title="Table view"

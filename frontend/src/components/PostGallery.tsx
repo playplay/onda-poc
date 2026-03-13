@@ -4,14 +4,13 @@ import PostCard from "./PostCard";
 interface Props {
   posts: Post[];
   allScores: number[];
-  playplaySlugs?: Set<string>;
   accountNames?: Map<string, string>;
   accountTypes?: Map<string, "company" | "person">;
   showSector?: boolean;
   showUseCase?: boolean;
 }
 
-export default function PostGallery({ posts, allScores, playplaySlugs, accountNames, accountTypes, showSector, showUseCase }: Props) {
+export default function PostGallery({ posts, allScores, accountNames, accountTypes, showSector, showUseCase }: Props) {
   if (posts.length === 0) {
     return <p className="text-gray-400 text-center py-8 text-sm">No posts found.</p>;
   }
@@ -25,7 +24,6 @@ export default function PostGallery({ posts, allScores, playplaySlugs, accountNa
           allScores={allScores}
           accountTypes={accountTypes}
           accountNames={accountNames}
-          playplaySlugs={playplaySlugs}
           showSector={showSector}
           showUseCase={showUseCase}
         />

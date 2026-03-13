@@ -36,8 +36,13 @@ def select_top_posts(
     get_reactions,  # item -> int
     get_comments,   # item -> int
     get_followers,  # item -> int | None
+    by_date: bool = False,
 ) -> list[dict]:
-    """Exclude posts < 48h, rank by engagement rate, keep top N."""
+    """Select top N posts. If by_date=True: sort by date desc. Otherwise: rank by engagement rate."""
+    if by_date:
+        sorted_items = sorted(items, key=lambda x: get_date(x) or datetime.min, reverse=True)
+        return sorted_items[:posts_to_keep]
+
     cutoff = datetime.utcnow() - timedelta(hours=MIN_POST_AGE_HOURS)
 
     # 1. Filter out posts younger than 48h

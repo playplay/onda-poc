@@ -24,6 +24,7 @@ from app.models.scrape_job import ScrapeJob
 from app.models.watched_account import WatchedAccount
 from app.services.date_utils import parse_date
 from app.services.ranking import compute_engagement_score, compute_engagement_rate, select_top_posts
+from app.services.utils import truncate_title
 
 logger = logging.getLogger(__name__)
 
@@ -141,44 +142,9 @@ async def check_scrape_ready(job: ScrapeJob) -> str:
 
 
 async def _fetch_results(client: httpx.AsyncClient, snapshot_id: str) -> list[dict]:
-    """Fetch results for Instagram snapshot. Same auto-recovery as LinkedIn BD."""
-    resp = await client.get(
-        f"{BASE_URL}/snapshot/{snapshot_id}",
-        headers=_headers(),
-        params={"format": "json"},
-    )
-    resp.raise_for_status()
-    items = resp.json()
-
-    if isinstance(items, list):
-        return items
-
-    logger.warning(
-        f"Instagram BD snapshot {snapshot_id}: expected list, got {type(items).__name__}: "
-        f"{str(items)[:300]}"
-    )
-
-    if isinstance(items, dict):
-        for key, val in items.items():
-            if isinstance(val, list) and val and isinstance(val[0], dict):
-                logger.info(f"Instagram BD snapshot {snapshot_id}: recovered {len(val)} items from key '{key}'")
-                return val
-        if items.get("url") or items.get("account"):
-            logger.info(f"Instagram BD snapshot {snapshot_id}: recovered 1 item (single dict)")
-            return [items]
-
-    try:
-        text = resp.text.strip()
-        if "\n" in text:
-            lines = [json.loads(line) for line in text.splitlines() if line.strip()]
-            if lines and isinstance(lines[0], dict):
-                logger.info(f"Instagram BD snapshot {snapshot_id}: recovered {len(lines)} items from JSONL")
-                return lines
-    except (json.JSONDecodeError, Exception):
-        pass
-
-    logger.error(f"Instagram BD snapshot {snapshot_id}: could not recover any items, returning []")
-    return []
+    """Fetch results for Instagram snapshot (delegates to shared BD fetcher with retry)."""
+    from app.services.brightdata_fetch import fetch_bd_snapshot
+    return await fetch_bd_snapshot(client, snapshot_id, label="Instagram BD")
 
 
 def _map_content_type(ig_type: str | None) -> tuple[str, str]:
@@ -196,13 +162,20 @@ def _map_content_type(ig_type: str | None) -> tuple[str, str]:
     return "image", "image"
 
 
-async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Post]:
+async def fetch_and_process_results(
+    db: AsyncSession,
+    job: ScrapeJob,
+    posts_to_keep: int = POSTS_TO_KEEP,
+    by_date: bool = False,
+) -> list[Post]:
     """Fetch Instagram profiles, extract posts, dedup, top N, map to Post models."""
+    _posts_to_keep = posts_to_keep
+    _by_date = by_date
     snapshot_id = job.instagram_snapshot_id
     if not snapshot_id:
         return []
 
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=300) as client:
         profiles = await _fetch_results(client, snapshot_id)
 
     # Flatten: each profile has a "posts" array
@@ -243,7 +216,8 @@ async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Po
 
         selected = select_top_posts(
             post_dicts,
-            posts_to_keep=POSTS_TO_KEEP,
+            posts_to_keep=_posts_to_keep,
+            by_date=_by_date,
             get_date=lambda x: parse_date(x.get("datetime")),
             get_reactions=lambda x: int(x.get("likes", 0) or 0),
             get_comments=lambda x: int(x.get("comments", 0) or 0),
@@ -284,7 +258,7 @@ def _item_to_post(item: dict, profile_data: dict, job: ScrapeJob) -> Post:
     return Post(
         id=uuid.uuid4(),
         scrape_job_id=job.id,
-        title=caption[:500] if caption else None,
+        title=truncate_title(caption) if caption else None,
         author_name=profile_data.get("account"),
         author_company=profile_data.get("profile_name"),
         sector=job.sector,

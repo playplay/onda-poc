@@ -13,7 +13,8 @@ import re
 import uuid
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
+from dateutil.relativedelta import relativedelta
 from urllib.parse import unquote
 
 import httpx
@@ -27,6 +28,7 @@ from app.models.watched_account import WatchedAccount
 from app.services.classifier import classify_format_family, detect_image_gif
 from app.services.date_utils import parse_date
 from app.services.ranking import compute_engagement_score, compute_engagement_rate, select_top_posts
+from app.services.utils import truncate_title
 
 
 logger = logging.getLogger(__name__)
@@ -81,6 +83,7 @@ def _extract_slug(linkedin_url: str) -> str:
 async def _trigger_batch(
     client: httpx.AsyncClient,
     batch: list[dict],
+    limit_per_input: int = POSTS_TO_FETCH,
 ) -> tuple[str | None, str | None]:
     """Trigger one Bright Data company batch.
 
@@ -91,7 +94,7 @@ async def _trigger_batch(
         "dataset_id": DATASET_ID,
         "type": "discover_new",
         "discover_by": DISCOVER_BY,
-        "limit_per_input": POSTS_TO_FETCH,
+        "limit_per_input": limit_per_input,
     }
 
     try:
@@ -121,7 +124,12 @@ async def _trigger_batch(
     return snapshot_id, None
 
 
-async def start_scrape(db: AsyncSession, job: ScrapeJob, company_accounts: list[WatchedAccount] | None = None) -> None:
+async def start_scrape(
+    db: AsyncSession,
+    job: ScrapeJob,
+    company_accounts: list[WatchedAccount] | None = None,
+    limit_per_input: int = POSTS_TO_FETCH,
+) -> None:
     """Trigger Bright Data batch request for company accounts in the sector.
 
     If company_accounts is provided, use those directly.
@@ -145,11 +153,11 @@ async def start_scrape(db: AsyncSession, job: ScrapeJob, company_accounts: list[
         await db.commit()
         return
 
-    urls = [_normalize_url(a.linkedin_url) for a in company_accounts]
+    urls = [_normalize_url(a.linkedin_url) for a in company_accounts if a.linkedin_url]
     batch = [{"url": u} for u in urls]
 
     async with httpx.AsyncClient(timeout=30) as client:
-        snapshot_id, error = await _trigger_batch(client, batch)
+        snapshot_id, error = await _trigger_batch(client, batch, limit_per_input=limit_per_input)
 
     if error:
         job.status = "failed"
@@ -188,54 +196,9 @@ async def _check_progress(client: httpx.AsyncClient, snapshot_id: str) -> str:
 
 
 async def _fetch_results(client: httpx.AsyncClient, snapshot_id: str) -> list[dict]:
-    """Fetch results for a single snapshot.
-
-    Handles unexpected BD response formats:
-    - dict with a list value → extract the list
-    - single dict item (looks like a post) → wrap in list
-    - JSONL (newline-delimited JSON) → parse each line
-    """
-    resp = await client.get(
-        f"{BASE_URL}/snapshot/{snapshot_id}",
-        headers=_headers(),
-        params={"format": "json"},
-    )
-    resp.raise_for_status()
-    items = resp.json()
-
-    if isinstance(items, list):
-        return items
-
-    # --- Auto-recovery for non-list responses ---
-    logger.warning(
-        f"BD snapshot {snapshot_id}: expected list, got {type(items).__name__}: "
-        f"{str(items)[:300]}"
-    )
-
-    # Case 1: dict with a list value (e.g. {"results": [...]} or {"data": [...]})
-    if isinstance(items, dict):
-        for key, val in items.items():
-            if isinstance(val, list) and val and isinstance(val[0], dict):
-                logger.info(f"BD snapshot {snapshot_id}: recovered {len(val)} items from key '{key}'")
-                return val
-        # Case 2: single post item (has typical post fields)
-        if items.get("url") or items.get("post_text") or items.get("user_id"):
-            logger.info(f"BD snapshot {snapshot_id}: recovered 1 item (single dict)")
-            return [items]
-
-    # Case 3: response might be JSONL (newline-delimited JSON)
-    try:
-        text = resp.text.strip()
-        if "\n" in text:
-            lines = [json.loads(line) for line in text.splitlines() if line.strip()]
-            if lines and isinstance(lines[0], dict):
-                logger.info(f"BD snapshot {snapshot_id}: recovered {len(lines)} items from JSONL")
-                return lines
-    except (json.JSONDecodeError, Exception):
-        pass
-
-    logger.error(f"BD snapshot {snapshot_id}: could not recover any items, returning []")
-    return []
+    """Fetch results for a single snapshot (delegates to shared BD fetcher with retry)."""
+    from app.services.brightdata_fetch import fetch_bd_snapshot
+    return await fetch_bd_snapshot(client, snapshot_id, label="LinkedIn BD")
 
 
 async def check_scrape_ready(job: ScrapeJob) -> str:
@@ -264,7 +227,13 @@ async def check_scrape_ready(job: ScrapeJob) -> str:
     return "ready"
 
 
-async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Post]:
+async def fetch_and_process_results(
+    db: AsyncSession,
+    job: ScrapeJob,
+    posts_to_keep: int = POSTS_TO_KEEP,
+    by_date: bool = False,
+    allowed_slugs_override: set[str] | None = None,
+) -> list[Post]:
     """Fetch Bright Data results, filter by company accounts, dedup, map to Post models."""
     raw_snapshot = job.brightdata_snapshot_id
     if not raw_snapshot:
@@ -273,7 +242,7 @@ async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Po
     snapshot_map = _parse_snapshot_ids(raw_snapshot)
 
     # Fetch results from each snapshot in parallel
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=300) as client:
         fetch_tasks = [
             _fetch_results(client, sid) for sid in snapshot_map.values()
         ]
@@ -284,16 +253,35 @@ async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Po
     for result_list in all_results:
         items.extend(result_list)
 
-    # Filter: remove errors + keep only posts by our watched company accounts
-    result = await db.execute(
-        select(WatchedAccount).where(
-            WatchedAccount.sector == job.sector,
-            WatchedAccount.type == "company",
+    # Build allowed slugs + slug→sector map: use override if provided, else query by sector
+    slug_to_sector: dict[str, str] = {}
+    if allowed_slugs_override is not None:
+        allowed_slugs = allowed_slugs_override
+    elif job.sector:
+        result = await db.execute(
+            select(WatchedAccount).where(
+                WatchedAccount.sector == job.sector,
+                WatchedAccount.type == "company",
+            )
         )
-    )
-    accounts = result.scalars().all()
-    allowed_slugs = {_extract_slug(a.linkedin_url) for a in accounts}
-    allowed_slugs.discard("")
+        accounts = result.scalars().all()
+        allowed_slugs = {_extract_slug(a.linkedin_url) for a in accounts if a.linkedin_url}
+        allowed_slugs.discard("")
+        slug_to_sector = {_extract_slug(a.linkedin_url): a.sector for a in accounts if a.linkedin_url and a.sector}
+    else:
+        # All sectors (e.g. scrape by CSM): query all company accounts
+        result = await db.execute(
+            select(WatchedAccount).where(WatchedAccount.type == "company")
+        )
+        accounts = result.scalars().all()
+        allowed_slugs = {_extract_slug(a.linkedin_url) for a in accounts if a.linkedin_url}
+        allowed_slugs.discard("")
+        slug_to_sector = {_extract_slug(a.linkedin_url): a.sector for a in accounts if a.linkedin_url and a.sector}
+
+    # Apply date filter if requested
+    cutoff: datetime | None = None
+    if job.scrape_date_since_months:
+        cutoff = datetime.now(timezone.utc) - relativedelta(months=job.scrape_date_since_months)
 
     items = [
         item for item in items
@@ -301,6 +289,7 @@ async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Po
         and unquote(item.get("user_id", "")) in allowed_slugs
         and item.get("post_type") != "repost"
         and not (item.get("title") or "").strip().startswith("|")
+        and (cutoff is None or _item_date_after(item, cutoff))
     ]
 
     # Deduplicate by post URL
@@ -318,7 +307,7 @@ async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Po
         f"{len(items)} posts after filtering + dedup (allowed slugs: {allowed_slugs})"
     )
 
-    # Select top posts per account by engagement rate
+    # Select top posts per account
     items_by_user: dict[str, list[dict]] = defaultdict(list)
     for item in items:
         uid = unquote(item.get("user_id", "unknown"))
@@ -328,7 +317,8 @@ async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Po
     for uid, user_items in items_by_user.items():
         selected = select_top_posts(
             user_items,
-            posts_to_keep=POSTS_TO_KEEP,
+            posts_to_keep=posts_to_keep,
+            by_date=by_date,
             get_date=lambda x: parse_date(x.get("date_posted")),
             get_reactions=lambda x: int(x.get("num_likes", 0) or 0),
             get_comments=lambda x: int(x.get("num_comments", 0) or 0),
@@ -346,11 +336,42 @@ async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Po
     created_posts: list[Post] = []
     for item in top_items:
         post = await _item_to_post(item, job)
+        # Propagate sector from watched_account when job has no sector (e.g. scrape by CSM)
+        if not post.sector:
+            slug = unquote(item.get("user_id", ""))
+            post.sector = slug_to_sector.get(slug)
         db.add(post)
         created_posts.append(post)
 
+    # Normalize author_company: use best display name per slug
+    best_names: dict[str, str] = {}
+    for p in created_posts:
+        slug = p.author_name or ""
+        name = p.author_company or ""
+        if slug and name != slug and (slug not in best_names or len(name) > len(best_names[slug])):
+            best_names[slug] = name
+    for p in created_posts:
+        slug = p.author_name or ""
+        if slug in best_names:
+            p.author_company = best_names[slug]
+
     return created_posts
 
+
+
+def _item_date_after(item: dict, cutoff: datetime) -> bool:
+    """Return True if the item's date_posted is on or after cutoff."""
+    raw = item.get("date_posted")
+    if not raw:
+        return True  # keep items with no date
+    try:
+        from dateutil import parser as dateutil_parser
+        dt = dateutil_parser.parse(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt >= cutoff
+    except Exception:
+        return True  # keep on parse error
 
 
 async def _item_to_post(item: dict, job: ScrapeJob) -> Post:
@@ -398,12 +419,19 @@ async def _item_to_post(item: dict, job: ScrapeJob) -> Post:
 
     post_text = item.get("post_text") or ""
 
+    # Extract proper author display name from BD title ("text... | CompanyName | N comments")
+    author_display = item.get("user_id")
+    bd_title = item.get("title") or ""
+    title_parts = [p.strip() for p in bd_title.split("|")]
+    if len(title_parts) >= 3 and "comment" in title_parts[-1].lower():
+        author_display = title_parts[-2]
+
     return Post(
         id=uuid.uuid4(),
         scrape_job_id=job.id,
-        title=post_text[:500] if post_text else None,
+        title=truncate_title(post_text) if post_text else None,
         author_name=item.get("user_id"),
-        author_company=item.get("headline"),
+        author_company=author_display,
         sector=job.sector,
         platform="linkedin",
         content_type=content_type,

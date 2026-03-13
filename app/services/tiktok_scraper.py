@@ -23,6 +23,7 @@ from app.models.scrape_job import ScrapeJob
 from app.models.watched_account import WatchedAccount
 from app.services.date_utils import parse_date
 from app.services.ranking import compute_engagement_score, compute_engagement_rate, select_top_posts
+from app.services.utils import truncate_title
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ def _extract_username(url: str) -> str:
 async def _trigger_batch(
     client: httpx.AsyncClient,
     batch: list[dict],
+    limit_per_input: int = 10,
 ) -> tuple[str | None, str | None]:
     """Trigger TikTok batch.
 
@@ -62,7 +64,7 @@ async def _trigger_batch(
         "dataset_id": DATASET_ID,
         "type": "discover_new",
         "discover_by": "profile_url",
-        "limit_per_input": 10,
+        "limit_per_input": limit_per_input,
     }
 
     try:
@@ -93,7 +95,10 @@ async def _trigger_batch(
 
 
 async def start_scrape(
-    db: AsyncSession, job: ScrapeJob, tiktok_accounts: list[WatchedAccount]
+    db: AsyncSession,
+    job: ScrapeJob,
+    tiktok_accounts: list[WatchedAccount],
+    limit_per_input: int = 10,
 ) -> None:
     """Trigger Bright Data batch for TikTok accounts. Stores snapshot_id in job.tiktok_snapshot_id."""
     urls = [_normalize_tiktok_url(a.tiktok_url) for a in tiktok_accounts if a.tiktok_url]
@@ -103,7 +108,7 @@ async def start_scrape(
     batch = [{"url": u} for u in urls]
 
     async with httpx.AsyncClient(timeout=30) as client:
-        snapshot_id, error = await _trigger_batch(client, batch)
+        snapshot_id, error = await _trigger_batch(client, batch, limit_per_input=limit_per_input)
 
     if error:
         logger.warning(f"TikTok scrape trigger failed: {error}")
@@ -143,44 +148,9 @@ async def check_scrape_ready(job: ScrapeJob) -> str:
 
 
 async def _fetch_results(client: httpx.AsyncClient, snapshot_id: str) -> list[dict]:
-    """Fetch results for TikTok snapshot."""
-    resp = await client.get(
-        f"{BASE_URL}/snapshot/{snapshot_id}",
-        headers=_headers(),
-        params={"format": "json"},
-    )
-    resp.raise_for_status()
-    items = resp.json()
-
-    if isinstance(items, list):
-        return items
-
-    logger.warning(
-        f"TikTok BD snapshot {snapshot_id}: expected list, got {type(items).__name__}: "
-        f"{str(items)[:300]}"
-    )
-
-    if isinstance(items, dict):
-        for key, val in items.items():
-            if isinstance(val, list) and val and isinstance(val[0], dict):
-                logger.info(f"TikTok BD snapshot {snapshot_id}: recovered {len(val)} items from key '{key}'")
-                return val
-        if items.get("url") or items.get("description"):
-            logger.info(f"TikTok BD snapshot {snapshot_id}: recovered 1 item (single dict)")
-            return [items]
-
-    try:
-        text = resp.text.strip()
-        if "\n" in text:
-            lines = [json.loads(line) for line in text.splitlines() if line.strip()]
-            if lines and isinstance(lines[0], dict):
-                logger.info(f"TikTok BD snapshot {snapshot_id}: recovered {len(lines)} items from JSONL")
-                return lines
-    except (json.JSONDecodeError, Exception):
-        pass
-
-    logger.error(f"TikTok BD snapshot {snapshot_id}: could not recover any items, returning []")
-    return []
+    """Fetch results for TikTok snapshot (delegates to shared BD fetcher with retry)."""
+    from app.services.brightdata_fetch import fetch_bd_snapshot
+    return await fetch_bd_snapshot(client, snapshot_id, label="TikTok BD")
 
 
 def _map_content_type(item: dict) -> tuple[str, str]:
@@ -194,13 +164,18 @@ def _map_content_type(item: dict) -> tuple[str, str]:
     return "image", "image"
 
 
-async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Post]:
+async def fetch_and_process_results(
+    db: AsyncSession,
+    job: ScrapeJob,
+    posts_to_keep: int = POSTS_TO_KEEP,
+    by_date: bool = False,
+) -> list[Post]:
     """Fetch TikTok posts, dedup, top N per account, map to Post models."""
     snapshot_id = job.tiktok_snapshot_id
     if not snapshot_id:
         return []
 
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=300) as client:
         items = await _fetch_results(client, snapshot_id)
 
     # Deduplicate by post URL
@@ -231,7 +206,8 @@ async def fetch_and_process_results(db: AsyncSession, job: ScrapeJob) -> list[Po
 
         selected = select_top_posts(
             user_items,
-            posts_to_keep=POSTS_TO_KEEP,
+            posts_to_keep=posts_to_keep,
+            by_date=by_date,
             get_date=lambda x: parse_date(x.get("create_time")),
             get_reactions=lambda x: int(x.get("digg_count", 0) or 0),
             get_comments=lambda x: int(x.get("comment_count", 0) or 0),
@@ -278,7 +254,7 @@ def _item_to_post(item: dict, job: ScrapeJob) -> Post:
     return Post(
         id=uuid.uuid4(),
         scrape_job_id=job.id,
-        title=description[:500] if description else None,
+        title=truncate_title(description) if description else None,
         author_name=username,
         author_company=username,
         sector=job.sector,

@@ -1,5 +1,31 @@
 export interface ScrapeRequest {
-  sector: string;
+  sector?: string | null;
+  posts_per_account?: number;
+  by_date?: boolean;
+}
+
+export interface CustomSearchCreate {
+  account_id?: string | null;
+  account_url?: string | null;
+  account_name?: string | null;
+  posts_limit?: number;
+  account_type?: string;
+  date_since_months?: number | null;
+}
+
+export interface CustomSearchInfo {
+  id: string;
+  custom_account_name: string | null;
+  custom_account_url: string | null;
+  status: string;
+  total_posts: number | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface CustomSearchResult {
+  job: ScrapeJob;
+  posts: Post[];
 }
 
 export interface WatchedAccount {
@@ -12,6 +38,7 @@ export interface WatchedAccount {
   sector: string;
   company_name: string | null;
   is_playplay_client: boolean;
+  assigned_cs_email: string | null;
   created_at: string;
 }
 
@@ -24,6 +51,7 @@ export interface WatchedAccountCreate {
   sector: string;
   company_name?: string | null;
   is_playplay_client?: boolean;
+  assigned_cs_email?: string | null;
 }
 
 export interface WatchedAccountUpdate {
@@ -35,6 +63,19 @@ export interface WatchedAccountUpdate {
   sector?: string;
   company_name?: string | null;
   is_playplay_client?: boolean;
+  assigned_cs_email?: string | null;
+}
+
+export interface UserInfo {
+  email: string;
+  name: string;
+  role: string;
+}
+
+export interface CollectionInfo {
+  id: number;
+  name: string;
+  post_count: number;
 }
 
 export interface ScrapeJob {
@@ -49,6 +90,12 @@ export interface ScrapeJob {
   error_message: string | null;
   created_at: string;
   completed_at: string | null;
+  is_custom_search?: boolean | null;
+  custom_account_name?: string | null;
+  custom_account_url?: string | null;
+  user_email?: string | null;
+  custom_account_type?: string | null;
+  date_since_months?: number | null;
 }
 
 export interface Post {
@@ -77,190 +124,14 @@ export interface Post {
   publication_date: string | null;
   claude_use_case: string | null;
   created_at: string;
-}
-
-export interface RankedTrend {
-  rank: number;
-  format_family: string;
-  post_count: number;
-  avg_engagement_rate: number;
-  top_posts: Post[];
-}
-
-export interface GeminiAnalysis {
-  id: string;
-  post_id: string;
-  business_objective: string | null;
-  use_case: string | null;
-  audience_target: string | null;
-  tone_of_voice: string | null;
-  content_style: string | null;
-  storytelling_approach: string | null;
-  creative_execution: string | null;
-  icp: string | null;
-  script_hook: string | null;
-  script_outline: string | null;
-  script_cta: string | null;
-  voice_language: string | null;
-  text_language: string | null;
-  contains_an_interview_footage: boolean | null;
-  video_dynamism: string | null;
-  media_analyzed: string | null;
-  full_analysis: Record<string, unknown> | null;
-  created_at: string;
-}
-
-// --- Analysis progress types ---
-
-export interface AnalysisStartResult {
-  total: number;
-  pending: number;
-}
-
-export interface AnalysisProgressResult {
-  processed: number;
-  total: number;
-  all_done: boolean;
-  current_analysis: GeminiAnalysis | null;
-}
-
-// --- Analysis table types ---
-
-export interface AnalysisRow {
-  post: Post;
-  analysis: GeminiAnalysis | null;
-}
-
-// --- Trend detail types ---
-
-export interface TrendDetailResponse {
-  trend: {
-    rank: number;
-    format_family: string;
-    post_count: number;
-    avg_engagement_rate: number;
-  } | null;
-  posts: Post[];
-  analyses: GeminiAnalysis[];
-}
-
-export const ANALYSIS_FILTERABLE_FIELDS = [
-  "business_objective",
-  "use_case",
-  "audience_target",
-  "tone_of_voice",
-  "content_style",
-  "storytelling_approach",
-  "creative_execution",
-  "icp",
-  "voice_language",
-  "text_language",
-  "video_dynamism",
-] as const;
-
-export type AnalysisFilterKey = (typeof ANALYSIS_FILTERABLE_FIELDS)[number];
-export type AnalysisFilterState = Record<AnalysisFilterKey, string>;
-
-export const ANALYSIS_FILTER_LABELS: Record<AnalysisFilterKey, string> = {
-  business_objective: "Objective",
-  use_case: "Use Case",
-  audience_target: "Audience",
-  tone_of_voice: "Tone",
-  content_style: "Style",
-  storytelling_approach: "Story",
-  creative_execution: "Execution",
-  icp: "ICP",
-  voice_language: "Voice Lang",
-  text_language: "Text Lang",
-  video_dynamism: "Dynamism",
-};
-
-export const ANALYSIS_ENUM_OPTIONS: Record<AnalysisFilterKey, string[]> = {
-  business_objective: [
-    "awareness", "engagement", "education", "conversion", "loyalty",
-    "onboarding", "retention", "internal alignment", "internal training",
-    "thought leadership", "brand employer visibility", "advocacy",
-    "recruitment", "brand culture or initiatives", "other",
-  ],
-  use_case: [
-    "announce an event", "recap an event", "present a webinar/program",
-    "share internal initiative", "promote open positions", "welcome new employee",
-    "spotlight an employee/team", "present an offer/product",
-    "showcase a customer success story", "present company strategy",
-    "share results or statistics or performance", "share company values",
-    "share tips and tricks", "promote a product", "share news",
-    "explain a process", "train employees", "educate on a topic",
-    "share a testimonial", "introduce a new tool or feature",
-    "react to current events", "celebrate milestone", "tutorial",
-    "express opinion (pov)", "promote a service", "other",
-  ],
-  audience_target: [
-    "employees (internal video)", "customers", "prospects", "partners",
-    "candidates", "investors", "media", "general public",
-    "leadership/executives", "community (fans/followers)", "students", "other",
-  ],
-  tone_of_voice: [
-    "none", "friendly", "formal", "inspirational", "corporate", "fun",
-    "educational", "dynamic", "empowering", "trustworthy", "humorous",
-    "empathetic", "authoritative", "celebratory", "provocative", "neutral", "other",
-  ],
-  content_style: [
-    "none", "informative", "narrative/personal journey", "instructional",
-    "entertaining", "persuasive", "reactive", "explainer", "highlight reel",
-    "testimonial", "interview-based", "trend-based", "emotional", "other",
-  ],
-  storytelling_approach: [
-    "text-based/motion based", "footage based", "voiceover-based", "music-based",
-  ],
-  creative_execution: [
-    "report presentation", "multi-single person snippets", "q&a solo talking",
-    "short documentary", "multi-interview snippets", "highlight reel",
-    "music based teaser", "long documentary", "two person interview",
-    "animated explainer", "expert walkthrough", "snack solo talking",
-    "video commentary", "embodied news", "voice-over on media",
-    "tutorial, screencast", "webinar recording", "testimonial self-recorded",
-    "speaking with animated waveform", "other",
-  ],
-  icp: [
-    "community management", "corporate communication", "hr & employer brand",
-    "internal communication", "marketing", "training", "sales",
-    "media journalist", "other",
-  ],
-  voice_language: ["none", "en-us", "fr-fr", "de-de", "others"],
-  text_language: ["en-us", "fr-fr", "de-de", "others", "none"],
-  video_dynamism: ["slow", "medium", "fast"],
-};
-
-export const FAMILY_LABELS: Record<string, string> = {
-  video: "Video",
-  carousel: "Carousel",
-  image: "Image",
-  images: "Images",
-  gif: "GIF",
-  text: "Text Only",
-  unknown: "Unknown",
-};
-
-// --- Use Case types ---
-
-export interface UseCasePivotRow {
-  use_case: string;
-  counts_by_format: Record<string, number>;
-  total: number;
-  best_post_url: string | null;
-  best_post_engagement: number;
-}
-
-export interface UseCasePivotResponse {
-  rows: UseCasePivotRow[];
-  format_families: string[];
-  status: "ready" | "classifying" | "empty";
-}
-
-export interface UseCaseClassifyResult {
-  classified: number;
-  total: number;
-  already_classified: number;
+  playplay_flag?: boolean;
+  playplay_flag_by?: string | null;
+  playplay_flag_name?: string | null;
+  playplay_flag_at?: string | null;
+  playplay_design_flag?: boolean;
+  playplay_design_flag_by?: string | null;
+  playplay_design_flag_name?: string | null;
+  playplay_design_flag_at?: string | null;
 }
 
 export interface LibraryResponse {

@@ -26,6 +26,7 @@ from app.models.watched_account import WatchedAccount
 from app.services.classifier import classify_format_family, detect_image_gif
 from app.services.date_utils import parse_date
 from app.services.ranking import compute_engagement_score, compute_engagement_rate, select_top_posts
+from app.services.utils import truncate_title
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +286,7 @@ async def _item_to_post(item: dict, job: ScrapeJob, fallback_followers: int | No
     return Post(
         id=uuid.uuid4(),
         scrape_job_id=job.id,
-        title=content[:500] if content else None,
+        title=truncate_title(content) if content else None,
         author_name=(author.get("publicIdentifier") or author.get("name")),
         author_company=author.get("info"),
         sector=job.sector,

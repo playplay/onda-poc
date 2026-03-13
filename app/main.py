@@ -10,7 +10,10 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine, Base
-from app.routers import scrape, posts, analysis, trend_summary, accounts, auth, use_cases, library
+from app.routers import scrape, posts, analysis, trend_summary, accounts, auth, use_cases, library, home, collections, custom_search, favorites
+import app.models.trend_snapshot  # noqa: F401 — register model for create_all
+import app.models.collection  # noqa: F401 — register model for create_all
+import app.models.favorite  # noqa: F401 — register model for create_all
 
 app = FastAPI(
     title="Onda API",
@@ -60,6 +63,60 @@ async def ensure_tables(request: Request, call_next):
             await conn.execute(text(
                 "ALTER TABLE scrape_jobs ADD COLUMN IF NOT EXISTS tiktok_snapshot_id TEXT"
             ))
+            await conn.execute(text(
+                "ALTER TABLE watched_accounts ADD COLUMN IF NOT EXISTS assigned_cs_email VARCHAR(200)"
+            ))
+            # Scrape params + custom search columns
+            await conn.execute(text(
+                "ALTER TABLE scrape_jobs ADD COLUMN IF NOT EXISTS scrape_posts_per_account INTEGER"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE scrape_jobs ADD COLUMN IF NOT EXISTS scrape_by_date BOOLEAN"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE scrape_jobs ADD COLUMN IF NOT EXISTS is_custom_search BOOLEAN DEFAULT FALSE"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE scrape_jobs ADD COLUMN IF NOT EXISTS user_email VARCHAR(200)"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE scrape_jobs ADD COLUMN IF NOT EXISTS custom_account_url TEXT"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE scrape_jobs ADD COLUMN IF NOT EXISTS custom_account_name VARCHAR(200)"
+            ))
+            # Custom search new params
+            await conn.execute(text(
+                "ALTER TABLE scrape_jobs ADD COLUMN IF NOT EXISTS custom_account_type VARCHAR(50)"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE scrape_jobs ADD COLUMN IF NOT EXISTS scrape_date_since_months INTEGER"
+            ))
+            # PlayPlay flags on posts
+            await conn.execute(text(
+                "ALTER TABLE posts ADD COLUMN IF NOT EXISTS playplay_flag BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE posts ADD COLUMN IF NOT EXISTS playplay_flag_by VARCHAR(200)"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE posts ADD COLUMN IF NOT EXISTS playplay_flag_name VARCHAR(200)"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE posts ADD COLUMN IF NOT EXISTS playplay_flag_at TIMESTAMP"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE posts ADD COLUMN IF NOT EXISTS playplay_design_flag BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE posts ADD COLUMN IF NOT EXISTS playplay_design_flag_by VARCHAR(200)"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE posts ADD COLUMN IF NOT EXISTS playplay_design_flag_name VARCHAR(200)"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE posts ADD COLUMN IF NOT EXISTS playplay_design_flag_at TIMESTAMP"
+            ))
             # Drop legacy columns removed from the ScrapeJob model
             for col in ("content_type_filter", "is_corporate", "max_results"):
                 await conn.execute(text(
@@ -84,6 +141,10 @@ app.include_router(trend_summary.router, prefix="/api", tags=["trends"])
 app.include_router(accounts.router, prefix="/api", tags=["accounts"])
 app.include_router(use_cases.router, prefix="/api", tags=["use-cases"])
 app.include_router(library.router, prefix="/api", tags=["library"])
+app.include_router(home.router, prefix="/api", tags=["home"])
+app.include_router(collections.router, prefix="/api", tags=["collections"])
+app.include_router(custom_search.router, prefix="/api", tags=["custom-search"])
+app.include_router(favorites.router, prefix="/api", tags=["favorites"])
 
 
 @app.get("/health")

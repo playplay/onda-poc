@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import require_admin
 from app.config import settings
 from app.db import get_db
 from app.models.post import GeminiAnalysis, Post
@@ -35,12 +36,14 @@ async def list_scrape_jobs(
 @router.post("/scrape", response_model=ScrapeJobOut)
 async def trigger_scrape(
     req: ScrapeRequest,
+    _admin: dict = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Start a LinkedIn scrape — hybrid: Bright Data for companies, Apify for persons."""
+    label = req.csm_email.split("@")[0] if req.csm_email else (req.sector or "All sectors")
     job = ScrapeJob(
         id=uuid.uuid4(),
-        search_query=req.sector,
+        search_query=label,
         sector=req.sector,
         status="pending",
     )
@@ -48,10 +51,17 @@ async def trigger_scrape(
     await db.commit()
     await db.refresh(job)
 
-    # Split accounts by type
-    result = await db.execute(
-        select(WatchedAccount).where(WatchedAccount.sector == req.sector)
-    )
+    # Split accounts by type, filtered by sector and/or CSM
+    filters = []
+    if req.sector:
+        filters.append(WatchedAccount.sector == req.sector)
+    if req.csm_email:
+        filters.append(WatchedAccount.assigned_cs_email == req.csm_email)
+    if filters:
+        from sqlalchemy import and_
+        result = await db.execute(select(WatchedAccount).where(and_(*filters)))
+    else:
+        result = await db.execute(select(WatchedAccount))
     accounts = result.scalars().all()
 
     company_accounts = [a for a in accounts if a.type == "company"]
@@ -59,7 +69,7 @@ async def trigger_scrape(
 
     if not company_accounts and not person_accounts:
         job.status = "failed"
-        job.error_message = f"No watched accounts found for sector: {req.sector}"
+        job.error_message = f"No watched accounts found for sector: {req.sector or 'any'}"
         job.completed_at = datetime.utcnow()
         await db.commit()
         await db.refresh(job)
@@ -73,7 +83,7 @@ async def trigger_scrape(
     if company_accounts:
         if settings.API_BRIGHT_DATA:
             from app.services.brightdata_scraper import start_scrape as bd_start
-            await bd_start(db, job, company_accounts)
+            await bd_start(db, job, company_accounts, limit_per_input=req.posts_per_account * 3)
             if job.status == "running":
                 backends.append("brightdata")
             else:
@@ -120,11 +130,15 @@ async def trigger_scrape(
     if tiktok_accounts and settings.API_BRIGHT_DATA:
         from app.services.tiktok_scraper import start_scrape as tt_start
         try:
-            await tt_start(db, job, tiktok_accounts)
+            await tt_start(db, job, tiktok_accounts, limit_per_input=req.posts_per_account * 3)
             if job.tiktok_snapshot_id:
                 backends.append("tiktok")
         except Exception as e:
             logger.warning(f"Failed to start TikTok scrape: {e}")
+
+    # Store scrape params on job for use during fetch
+    job.scrape_posts_per_account = req.posts_per_account
+    job.scrape_by_date = req.by_date
 
     # If BD failed but person scrape started, store BD error as warning
     if bd_error and backends:
@@ -166,6 +180,7 @@ async def get_scrape_status(
 @router.delete("/scrape/{job_id}", status_code=204)
 async def delete_scrape_job(
     job_id: uuid.UUID,
+    _admin: dict = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a scrape job and all associated posts + analyses."""
@@ -255,10 +270,12 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
 
         # Fetch and combine results from all backends
         all_posts: list[Post] = []
+        posts_to_keep = job.scrape_posts_per_account or 3
+        by_date = bool(job.scrape_by_date)
 
         if "brightdata" in backends:
             from app.services.brightdata_scraper import fetch_and_process_results
-            bd_posts = await fetch_and_process_results(db, job)
+            bd_posts = await fetch_and_process_results(db, job, posts_to_keep=posts_to_keep, by_date=by_date)
             all_posts.extend(bd_posts)
 
         if "profile" in backends and job.profile_apify_run_ids:
@@ -268,18 +285,24 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
                 _extract_slug,
             )
             # Build allowed slugs from person accounts
-            result = await db.execute(
-                select(WatchedAccount).where(
-                    WatchedAccount.sector == job.sector,
-                    WatchedAccount.type == "person",
+            if job.sector:
+                result = await db.execute(
+                    select(WatchedAccount).where(
+                        WatchedAccount.sector == job.sector,
+                        WatchedAccount.type == "person",
+                    )
                 )
-            )
+            else:
+                result = await db.execute(
+                    select(WatchedAccount).where(WatchedAccount.type == "person")
+                )
             person_accounts = result.scalars().all()
             allowed_slugs = set()
             for a in person_accounts:
-                match = re.search(r"/in/([^/]+)", a.linkedin_url)
-                if match:
-                    allowed_slugs.add(match.group(1).lower())
+                if a.linkedin_url:
+                    match = re.search(r"/in/([^/]+)", a.linkedin_url)
+                    if match:
+                        allowed_slugs.add(match.group(1).lower())
 
             # Fetch follower counts for accounts missing them
             follower_map = await fetch_follower_counts(person_accounts)
@@ -302,12 +325,12 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
 
         if "instagram" in backends and job.instagram_snapshot_id:
             from app.services.instagram_scraper import fetch_and_process_results as ig_fetch
-            ig_posts = await ig_fetch(db, job)
+            ig_posts = await ig_fetch(db, job, posts_to_keep=posts_to_keep, by_date=by_date)
             all_posts.extend(ig_posts)
 
         if "tiktok" in backends and job.tiktok_snapshot_id:
             from app.services.tiktok_scraper import fetch_and_process_results as tt_fetch
-            tt_posts = await tt_fetch(db, job)
+            tt_posts = await tt_fetch(db, job, posts_to_keep=posts_to_keep, by_date=by_date)
             all_posts.extend(tt_posts)
 
         # Update follower_count on watched accounts from the most recent post data
@@ -316,6 +339,13 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
         job.total_posts = len(all_posts)
         job.status = "completed"
         job.completed_at = datetime.utcnow()
+
+        # Generate trend snapshots for the completed job
+        try:
+            from app.services.trend_snapshot import generate_trend_snapshot
+            await generate_trend_snapshot(db, job)
+        except Exception as snap_err:
+            logger.warning(f"Failed to generate trend snapshot: {snap_err}")
 
     except Exception as e:
         job.status = "failed"
@@ -326,12 +356,15 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
 
 
 async def _update_account_followers(
-    db: AsyncSession, sector: str, posts: list[Post]
+    db: AsyncSession, sector: str | None, posts: list[Post]
 ) -> None:
     """Update follower_count on watched accounts from scraped post data."""
-    result = await db.execute(
-        select(WatchedAccount).where(WatchedAccount.sector == sector)
-    )
+    if sector:
+        result = await db.execute(
+            select(WatchedAccount).where(WatchedAccount.sector == sector)
+        )
+    else:
+        result = await db.execute(select(WatchedAccount))
     accounts = result.scalars().all()
     if not accounts:
         return

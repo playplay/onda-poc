@@ -22,6 +22,7 @@ from app.models.watched_account import WatchedAccount
 from app.services.classifier import classify_format_family
 from app.services.date_utils import parse_date
 from app.services.ranking import compute_engagement_score
+from app.services.utils import truncate_title
 from app.services.video_downloader import start_video_download
 
 logger = logging.getLogger(__name__)
@@ -209,7 +210,7 @@ def _item_to_post(item: dict, job: ScrapeJob) -> Post:
     return Post(
         id=uuid.uuid4(),
         scrape_job_id=job.id,
-        title=commentary[:500] if commentary else None,
+        title=truncate_title(commentary) if commentary else None,
         author_name=actor_info.get("actor_name"),
         author_company=actor_info.get("actor_description"),
         sector=job.sector,

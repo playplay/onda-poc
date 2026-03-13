@@ -1,3 +1,5 @@
+import json
+
 from pydantic_settings import BaseSettings
 
 
@@ -6,7 +8,6 @@ class Settings(BaseSettings):
     POSTGRES_URL: str = ""
     APIFY_TOKEN: str = ""
     ANTHROPIC_API_KEY: str = ""
-    AI_GATEWAY_API_KEY: str = ""
     VERCEL_OIDC_TOKEN: str = ""
     GEMINI_API_KEY: str = ""
     API_BRIGHT_DATA: str = ""
@@ -14,6 +15,14 @@ class Settings(BaseSettings):
     AUTH_PASSWORD: str = ""
     JWT_SECRET: str = ""
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    USERS: str = "[]"
+
+    @property
+    def user_list(self) -> list[dict]:
+        users = json.loads(self.USERS) if self.USERS else []
+        if not users and self.AUTH_EMAIL:
+            users = [{"email": self.AUTH_EMAIL, "password": self.AUTH_PASSWORD, "name": "Admin", "role": "admin"}]
+        return users
 
     @property
     def async_database_url(self) -> str:

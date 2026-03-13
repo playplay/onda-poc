@@ -1,3 +1,20 @@
+import type { WatchedAccount } from "../types";
+
+export function sortAccounts(list: WatchedAccount[], currentUserEmail?: string): WatchedAccount[] {
+  return [...list].sort((a, b) => {
+    if (currentUserEmail) {
+      const aIsMe = a.assigned_cs_email === currentUserEmail ? 0 : 1;
+      const bIsMe = b.assigned_cs_email === currentUserEmail ? 0 : 1;
+      if (aIsMe !== bIsMe) return aIsMe - bIsMe;
+    }
+    const csA = a.assigned_cs_email ?? "";
+    const csB = b.assigned_cs_email ?? "";
+    if (csA < csB) return -1;
+    if (csA > csB) return 1;
+    return a.name.localeCompare(b.name);
+  });
+}
+
 interface AccountInput {
   name: string;
   type: "company" | "person";
@@ -6,6 +23,7 @@ interface AccountInput {
   tiktok_url?: string | null;
   company_name?: string | null;
   is_playplay_client?: boolean;
+  assigned_cs_email?: string | null;
 }
 
 export interface AccountMaps {
@@ -13,6 +31,7 @@ export interface AccountMaps {
   types: Map<string, "company" | "person">;
   companyNames: Map<string, string>;
   slugs: Set<string>;
+  csmEmails: Map<string, string>;
 }
 
 export function buildAccountMaps(accounts: AccountInput[]): AccountMaps {
@@ -20,6 +39,11 @@ export function buildAccountMaps(accounts: AccountInput[]): AccountMaps {
   const types = new Map<string, "company" | "person">();
   const companyNames = new Map<string, string>();
   const slugs = new Set<string>();
+  const csmEmails = new Map<string, string>();
+
+  function setCsm(key: string, email: string | null | undefined) {
+    if (email) csmEmails.set(key, email);
+  }
 
   for (const a of accounts) {
     const match = a.linkedin_url?.match(/\/(in|company)\/([^/]+)/);
@@ -28,11 +52,14 @@ export function buildAccountMaps(accounts: AccountInput[]): AccountMaps {
       names.set(slug, a.name);
       types.set(slug, a.type);
       if (a.company_name) companyNames.set(slug, a.company_name);
+      setCsm(slug, a.assigned_cs_email);
     }
     names.set(a.name, a.name);
     types.set(a.name, a.type);
     names.set(a.name.toLowerCase(), a.name);
     types.set(a.name.toLowerCase(), a.type);
+    setCsm(a.name, a.assigned_cs_email);
+    setCsm(a.name.toLowerCase(), a.assigned_cs_email);
     if (a.company_name) {
       companyNames.set(a.name, a.company_name);
       companyNames.set(a.name.toLowerCase(), a.company_name);
@@ -45,6 +72,7 @@ export function buildAccountMaps(accounts: AccountInput[]): AccountMaps {
         names.set(igUser, a.name);
         types.set(igUser, a.type);
         if (a.company_name) companyNames.set(igUser, a.company_name);
+        setCsm(igUser, a.assigned_cs_email);
         if (a.is_playplay_client) slugs.add(igUser);
       }
     }
@@ -56,6 +84,7 @@ export function buildAccountMaps(accounts: AccountInput[]): AccountMaps {
         names.set(ttUser, a.name);
         types.set(ttUser, a.type);
         if (a.company_name) companyNames.set(ttUser, a.company_name);
+        setCsm(ttUser, a.assigned_cs_email);
         if (a.is_playplay_client) slugs.add(ttUser);
       }
     }
@@ -67,5 +96,5 @@ export function buildAccountMaps(accounts: AccountInput[]): AccountMaps {
     }
   }
 
-  return { names, types, companyNames, slugs };
+  return { names, types, companyNames, slugs, csmEmails };
 }

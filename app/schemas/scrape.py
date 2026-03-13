@@ -8,7 +8,10 @@ from pydantic import BaseModel, Field
 
 
 class ScrapeRequest(BaseModel):
-    sector: str = Field(..., min_length=1, description="Sector to scrape (must match a sector in watched_accounts)")
+    sector: str | None = Field(None, description="Sector to scrape, or None for all sectors")
+    csm_email: str | None = Field(None, description="Filter accounts by assigned CSM email")
+    posts_per_account: int = Field(3, ge=1, le=50, description="Posts to keep per account")
+    by_date: bool = Field(False, description="If true, select most recent posts instead of top engagement")
 
 
 class ScrapeJobOut(BaseModel):
@@ -27,5 +30,11 @@ class ScrapeJobOut(BaseModel):
     error_message: str | None
     created_at: datetime
     completed_at: datetime | None
+    is_custom_search: bool | None = None
+    user_email: str | None = None
+    custom_account_url: str | None = None
+    custom_account_name: str | None = None
+    custom_account_type: str | None = None
+    scrape_date_since_months: int | None = None
 
     model_config = {"from_attributes": True}

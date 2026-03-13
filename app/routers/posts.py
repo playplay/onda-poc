@@ -1,17 +1,25 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user
 from app.db import get_db
 from app.models.post import Post
 from app.schemas.post import PostOut, RankedTrendOut
 from app.services.ranking import get_top_trends
 
 router = APIRouter()
+
+
+class PlayPlayFlagRequest(BaseModel):
+    flag_type: str  # "playplay" | "playplay_design"
+    value: bool
 
 
 @router.get("/posts", response_model=list[PostOut])
@@ -38,6 +46,37 @@ async def list_posts(
 
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.patch("/posts/{post_id}/playplay-flag", response_model=PostOut)
+async def set_playplay_flag(
+    post_id: uuid.UUID,
+    body: PlayPlayFlagRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Set or clear a PlayPlay flag on a post (collaborative, shared between users)."""
+    user = get_current_user(request)
+    post = await db.get(Post, post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    if body.flag_type == "playplay":
+        post.playplay_flag = body.value
+        post.playplay_flag_by = user["email"]
+        post.playplay_flag_name = user["name"]
+        post.playplay_flag_at = datetime.utcnow()
+    elif body.flag_type == "playplay_design":
+        post.playplay_design_flag = body.value
+        post.playplay_design_flag_by = user["email"]
+        post.playplay_design_flag_name = user["name"]
+        post.playplay_design_flag_at = datetime.utcnow()
+    else:
+        raise HTTPException(status_code=422, detail="flag_type must be 'playplay' or 'playplay_design'")
+
+    await db.commit()
+    await db.refresh(post)
+    return post
 
 
 @router.get("/posts/ranking", response_model=list[RankedTrendOut])

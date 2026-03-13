@@ -12,9 +12,12 @@ engine_kwargs: dict = {
 }
 
 if settings.is_serverless:
-    # Serverless: no connection pool, use SSL for Neon
+    # Serverless: no connection pool, use SSL
     engine_kwargs["poolclass"] = NullPool
-    engine_kwargs["connect_args"] = {"ssl": ssl.create_default_context()}
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
+    engine_kwargs["connect_args"] = {"ssl": ssl_ctx}
 else:
     # Local dev: standard pool, no SSL needed
     engine_kwargs["pool_size"] = 5

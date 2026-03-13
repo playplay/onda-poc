@@ -8,9 +8,10 @@ interface Props {
   onClear: () => void;
   displayFn?: (val: string) => string;
   countMap?: Map<string, number>;
+  className?: string;
 }
 
-export default function FilterDropdown({ label, options, selected, onToggle, onClear, displayFn, countMap }: Props) {
+export default function FilterDropdown({ label, options, selected, onToggle, onClear, displayFn, countMap, className }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -19,8 +20,8 @@ export default function FilterDropdown({ label, options, selected, onToggle, onC
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
   }, [open]);
 
   const sorted = countMap
@@ -30,10 +31,10 @@ export default function FilterDropdown({ label, options, selected, onToggle, onC
   const disabled = options.length === 0;
 
   return (
-    <div className="relative" ref={ref}>
+    <div className={`relative ${className ?? ""}`} ref={ref}>
       <button
         onClick={() => !disabled && setOpen(!open)}
-        className={`min-w-[100px] px-3.5 py-1.5 text-xs rounded-md border transition-colors inline-flex items-center gap-1.5 ${
+        className={`w-full px-3.5 py-1.5 text-xs rounded-md border transition-colors inline-flex items-center gap-1.5 ${
           disabled
             ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
             : selected.size > 0

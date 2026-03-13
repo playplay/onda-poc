@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+import re
+
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user
 from app.db import get_db
 from app.models.post import Post
 from app.models.scrape_job import ScrapeJob
+from app.models.watched_account import WatchedAccount
 from app.schemas.post import PostOut
+from app.services.ranking import get_engagement_level
 
 router = APIRouter()
 
@@ -30,15 +35,12 @@ def _normalize_format(fmt: str | None) -> str | None:
     return key
 
 
+_ENGAGEMENT_PRIORITY = {"viral": 0, "engaging": 1, "neutral": 2}
+
+
 def _get_engagement_label(rate: float | None, followers: int | None) -> int:
     """Return engagement priority: Viral=0, Engaging=1, Neutral=2 (lower=better)."""
-    if rate is None:
-        return 2
-    if followers is not None and followers >= 100_000:
-        return 0 if rate > 2 else (1 if rate >= 0.5 else 2)
-    if followers is not None and followers >= 10_000:
-        return 0 if rate > 3 else (1 if rate >= 1 else 2)
-    return 0 if rate > 5 else (1 if rate >= 2 else 2)
+    return _ENGAGEMENT_PRIORITY[get_engagement_level(rate, followers)]
 
 
 def _sort_key(p: Post) -> tuple[int, float]:
@@ -48,16 +50,45 @@ def _sort_key(p: Post) -> tuple[int, float]:
 
 
 @router.get("/library", response_model=LibraryResponse)
-async def get_library(db: AsyncSession = Depends(get_db)):
-    """Return top posts across all completed jobs, bucketed by sector/format/use_case/platform."""
+async def get_library(
+    portfolio: bool = False,
+    request: Request = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return all posts across completed jobs, deduped by post_url."""
     stmt = (
         select(Post)
         .join(ScrapeJob, Post.scrape_job_id == ScrapeJob.id)
         .where(ScrapeJob.status == "completed")
+        .where(ScrapeJob.is_custom_search.isnot(True))
         .where(Post.engagement_rate.isnot(None))
         .order_by(Post.engagement_rate.desc())
-        .limit(500)
     )
+
+    # Portfolio filter: only posts from accounts assigned to the current user
+    assigned_slugs: set[str] = set()
+    if portfolio and request:
+        user = get_current_user(request)
+        acct_result = await db.execute(
+            select(WatchedAccount.linkedin_url, WatchedAccount.instagram_url, WatchedAccount.tiktok_url)
+            .where(WatchedAccount.assigned_cs_email == user["email"])
+        )
+        for linkedin_url, ig_url, tt_url in acct_result.all():
+            if linkedin_url:
+                m = re.search(r"/(company|in)/([^/]+)", linkedin_url)
+                if m:
+                    assigned_slugs.add(m.group(2).lower())
+            if ig_url:
+                m = re.search(r"instagram\.com/([^/]+)", ig_url)
+                if m:
+                    assigned_slugs.add(m.group(1).lower())
+            if tt_url:
+                m = re.search(r"tiktok\.com/@([^/?\s]+)", tt_url)
+                if m:
+                    assigned_slugs.add(m.group(1).lower())
+        if not assigned_slugs:
+            return LibraryResponse(posts=[], sectors=[], format_families=[], use_cases=[], platforms=[])
+
     result = await db.execute(stmt)
     all_posts = result.scalars().all()
 
@@ -70,70 +101,21 @@ async def get_library(db: AsyncSession = Depends(get_db)):
             seen_urls.add(key)
             deduped.append(p)
 
-    # Sort deduped by engagement label priority for bucketing
+    # Portfolio filter: filter by assigned account slugs
+    if portfolio and request:
+        deduped = [p for p in deduped if (p.author_name or "").lower() in assigned_slugs]
+
+    # Sort by engagement label priority
     deduped.sort(key=_sort_key)
 
-    # Top 10 per sector
-    sector_buckets: dict[str, list[Post]] = {}
-    for p in deduped:
-        s = p.sector
-        if s:
-            sector_buckets.setdefault(s, [])
-            if len(sector_buckets[s]) < 10:
-                sector_buckets[s].append(p)
-
-    # Top 10 per format_family
-    format_buckets: dict[str, list[Post]] = {}
-    for p in deduped:
-        fmt = _normalize_format(p.format_family)
-        if fmt:
-            format_buckets.setdefault(fmt, [])
-            if len(format_buckets[fmt]) < 10:
-                format_buckets[fmt].append(p)
-
-    # Top 10 per claude_use_case
-    use_case_buckets: dict[str, list[Post]] = {}
-    for p in deduped:
-        uc = p.claude_use_case
-        if uc:
-            use_case_buckets.setdefault(uc, [])
-            if len(use_case_buckets[uc]) < 10:
-                use_case_buckets[uc].append(p)
-
-    # Top 10 per platform
-    platform_buckets: dict[str, list[Post]] = {}
-    for p in deduped:
-        plat = p.platform or "linkedin"
-        platform_buckets.setdefault(plat, [])
-        if len(platform_buckets[plat]) < 10:
-            platform_buckets[plat].append(p)
-
-    # Union all 4 bucket types (dedup by post id)
-    selected_ids: set = set()
-    selected: list[Post] = []
-    all_buckets = (
-        list(sector_buckets.values())
-        + list(format_buckets.values())
-        + list(use_case_buckets.values())
-        + list(platform_buckets.values())
-    )
-    for bucket in all_buckets:
-        for p in bucket:
-            if p.id not in selected_ids:
-                selected_ids.add(p.id)
-                selected.append(p)
-
-    # Final sort by engagement label priority, then rate desc
-    selected.sort(key=_sort_key)
-
-    # Build filter lists
-    sectors = sorted({p.sector for p in selected if p.sector})
-    format_families = sorted({_normalize_format(p.format_family) for p in selected if p.format_family} - {None})
-    use_cases = sorted({p.claude_use_case for p in selected if p.claude_use_case})
-    platforms = sorted({(p.platform or "linkedin") for p in selected})
+    # Build filter lists from all deduped posts
+    sectors = sorted({p.sector for p in deduped if p.sector})
+    format_families = sorted({_normalize_format(p.format_family) for p in deduped if p.format_family} - {None})
+    use_cases = sorted({p.claude_use_case for p in deduped if p.claude_use_case})
+    platforms = sorted({(p.platform or "linkedin") for p in deduped})
 
     return LibraryResponse(
-        posts=selected,
+        posts=deduped,
         sectors=sectors,
         format_families=format_families,
         use_cases=use_cases,
