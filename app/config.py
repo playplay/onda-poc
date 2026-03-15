@@ -36,7 +36,7 @@ class Settings(BaseSettings):
         # Strip sslmode from URL — handled via connect_args in engine config
         if "?" in url:
             base, params = url.split("?", 1)
-            filtered = "&".join(p for p in params.split("&") if not p.startswith("sslmode="))
+            filtered = "&".join(p for p in params.split("&") if not p.startswith(("sslmode=", "channel_binding=")))
             url = f"{base}?{filtered}" if filtered else base
         return url
 
