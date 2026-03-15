@@ -83,7 +83,8 @@ async def trigger_scrape(
     if company_accounts:
         if settings.API_BRIGHT_DATA:
             from app.services.brightdata_scraper import start_scrape as bd_start
-            await bd_start(db, job, company_accounts, limit_per_input=req.posts_per_account * 3)
+            fetch_limit = (30 if req.since_date else req.posts_per_account) * 3
+            await bd_start(db, job, company_accounts, limit_per_input=fetch_limit)
             if job.status == "running":
                 backends.append("brightdata")
             else:
@@ -103,7 +104,8 @@ async def trigger_scrape(
     if person_accounts and settings.APIFY_TOKEN:
         from app.services.apify_profile_scraper import start_profile_scrape
         try:
-            run_ids = await start_profile_scrape(db, job, person_accounts)
+            profile_max_posts = 30 if req.since_date else 10
+            run_ids = await start_profile_scrape(db, job, person_accounts, max_posts=profile_max_posts)
             job.profile_apify_run_ids = run_ids
             backends.append("profile")
         except Exception as e:
@@ -130,15 +132,24 @@ async def trigger_scrape(
     if tiktok_accounts and settings.API_BRIGHT_DATA:
         from app.services.tiktok_scraper import start_scrape as tt_start
         try:
-            await tt_start(db, job, tiktok_accounts, limit_per_input=req.posts_per_account * 3)
+            tt_fetch_limit = (30 if req.since_date else req.posts_per_account) * 3
+            await tt_start(db, job, tiktok_accounts, limit_per_input=tt_fetch_limit)
             if job.tiktok_snapshot_id:
                 backends.append("tiktok")
         except Exception as e:
             logger.warning(f"Failed to start TikTok scrape: {e}")
 
+    # When since_date is set, override to exhaustive mode
+    effective_posts_per_account = req.posts_per_account
+    effective_by_date = req.by_date
+    if req.since_date:
+        effective_posts_per_account = 30
+        effective_by_date = True
+
     # Store scrape params on job for use during fetch
-    job.scrape_posts_per_account = req.posts_per_account
-    job.scrape_by_date = req.by_date
+    job.scrape_posts_per_account = effective_posts_per_account
+    job.scrape_by_date = effective_by_date
+    job.scrape_since_date = req.since_date
 
     # If BD failed but person scrape started, store BD error as warning
     if bd_error and backends:

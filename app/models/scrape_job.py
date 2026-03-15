@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 
-from sqlalchemy import Boolean, String, Integer, DateTime, Text
+from sqlalchemy import Boolean, String, Integer, DateTime, Text, Date
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,5 +39,6 @@ class ScrapeJob(Base):
     custom_account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     custom_account_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # "company" | "person"
     scrape_date_since_months: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1, 3, 6, 12, None=all
+    scrape_since_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # absolute cutoff date for weekly scrape
 
     posts = relationship("Post", back_populates="scrape_job", lazy="selectin")

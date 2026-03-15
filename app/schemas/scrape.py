@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
-from typing import Any
+from datetime import datetime, date
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -12,6 +12,7 @@ class ScrapeRequest(BaseModel):
     csm_email: str | None = Field(None, description="Filter accounts by assigned CSM email")
     posts_per_account: int = Field(3, ge=1, le=50, description="Posts to keep per account")
     by_date: bool = Field(False, description="If true, select most recent posts instead of top engagement")
+    since_date: Optional[date] = Field(None, description="Only keep posts on or after this date; overrides posts_per_account to 30 and forces by_date=True")
 
 
 class ScrapeJobOut(BaseModel):

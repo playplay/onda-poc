@@ -10,7 +10,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.db import engine, Base
-from app.routers import scrape, posts, analysis, trend_summary, accounts, auth, use_cases, library, home, collections, custom_search, favorites
+from app.routers import scrape, posts, analysis, trend_summary, accounts, auth, use_cases, library, home, collections, custom_search, favorites, cron
 import app.models.trend_snapshot  # noqa: F401 — register model for create_all
 import app.models.collection  # noqa: F401 — register model for create_all
 import app.models.favorite  # noqa: F401 — register model for create_all
@@ -27,7 +27,7 @@ _tables_created = False
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
-    if path.startswith("/api/auth") or path == "/health" or not path.startswith("/api"):
+    if path.startswith("/api/auth") or path.startswith("/api/cron") or path == "/health" or not path.startswith("/api"):
         return await call_next(request)
     token = request.cookies.get("onda_token")
     if not token:
@@ -92,6 +92,14 @@ async def ensure_tables(request: Request, call_next):
             await conn.execute(text(
                 "ALTER TABLE scrape_jobs ADD COLUMN IF NOT EXISTS scrape_date_since_months INTEGER"
             ))
+            # Weekly scrape since_date column
+            await conn.execute(text(
+                "ALTER TABLE scrape_jobs ADD COLUMN IF NOT EXISTS scrape_since_date DATE"
+            ))
+            # Unique index on post_url for deduplication (partial: only non-NULL urls)
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_posts_post_url ON posts (post_url) WHERE post_url IS NOT NULL"
+            ))
             # PlayPlay flags on posts
             await conn.execute(text(
                 "ALTER TABLE posts ADD COLUMN IF NOT EXISTS playplay_flag BOOLEAN NOT NULL DEFAULT FALSE"
@@ -145,6 +153,7 @@ app.include_router(home.router, prefix="/api", tags=["home"])
 app.include_router(collections.router, prefix="/api", tags=["collections"])
 app.include_router(custom_search.router, prefix="/api", tags=["custom-search"])
 app.include_router(favorites.router, prefix="/api", tags=["favorites"])
+app.include_router(cron.router, prefix="/api", tags=["cron"])
 
 
 @app.get("/health")

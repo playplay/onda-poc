@@ -14,9 +14,10 @@ import re
 import uuid
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from apify_client import ApifyClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -86,7 +87,10 @@ async def fetch_follower_counts(accounts: list[WatchedAccount]) -> dict[str, int
 
 
 async def start_profile_scrape(
-    db: AsyncSession, job: ScrapeJob, person_accounts: list[WatchedAccount]
+    db: AsyncSession,
+    job: ScrapeJob,
+    person_accounts: list[WatchedAccount],
+    max_posts: int = POSTS_TO_FETCH,
 ) -> list[str]:
     """Launch a single Apify run for all person accounts. Returns list of run IDs."""
     client = ApifyClient(settings.APIFY_TOKEN)
@@ -95,7 +99,7 @@ async def start_profile_scrape(
 
     actor_input = {
         "targetUrls": target_urls,
-        "maxPosts": POSTS_TO_FETCH,
+        "maxPosts": max_posts,
         "includeReposts": False,
         "includeQuotePosts": False,
         "scrapeReactions": False,
@@ -157,14 +161,32 @@ async def fetch_and_process_profile_posts(
 
     logger.info(f"Apify profile scrape: fetched {len(all_items)} raw items")
 
-    # Filter by author slug
+    # Build cutoff date from job
+    cutoff: datetime | None = None
+    if job.scrape_since_date:
+        cutoff = datetime(
+            job.scrape_since_date.year,
+            job.scrape_since_date.month,
+            job.scrape_since_date.day,
+            tzinfo=timezone.utc,
+        )
+
+    # Filter by author slug (and optionally by date)
     allowed_lower = {s.lower() for s in allowed_slugs}
     filtered: list[dict] = []
     for item in all_items:
         author = item.get("author") or {}
         public_id = (author.get("publicIdentifier") or "").lower()
-        if public_id in allowed_lower:
-            filtered.append(item)
+        if public_id not in allowed_lower:
+            continue
+        if cutoff is not None:
+            posted_at = item.get("postedAt") or {}
+            pub_date = parse_date(posted_at.get("date"))
+            if pub_date is not None:
+                pub_dt = datetime(pub_date.year, pub_date.month, pub_date.day, tzinfo=timezone.utc)
+                if pub_dt < cutoff:
+                    continue
+        filtered.append(item)
 
     # Dedup by post id
     seen_ids: set[str] = set()
@@ -190,11 +212,13 @@ async def fetch_and_process_profile_posts(
         public_id = (author.get("publicIdentifier") or "unknown").lower()
         items_by_author[public_id].append(item)
 
+    effective_posts_to_keep = job.scrape_posts_per_account or POSTS_TO_KEEP
     top_items: list[dict] = []
     for author_id, author_items in items_by_author.items():
         selected = select_top_posts(
             author_items,
-            posts_to_keep=POSTS_TO_KEEP,
+            posts_to_keep=effective_posts_to_keep,
+            by_date=bool(job.scrape_by_date),
             get_date=lambda x: parse_date((x.get("postedAt") or {}).get("date")),
             get_reactions=lambda x: int((x.get("engagement") or {}).get("likes", 0) or 0),
             get_comments=lambda x: int((x.get("engagement") or {}).get("comments", 0) or 0),
@@ -203,17 +227,24 @@ async def fetch_and_process_profile_posts(
         top_items.extend(selected)
 
     logger.info(
-        f"Apify profile scrape: {len(top_items)} posts after filter/dedup/top-{POSTS_TO_KEEP} "
+        f"Apify profile scrape: {len(top_items)} posts after filter/dedup/top-{effective_posts_to_keep} "
         f"(allowed slugs: {allowed_lower})"
     )
 
-    # Map to Post models
+    # Map to Post models, skipping posts already in DB (dedup by post_url)
     created_posts: list[Post] = []
     for item in top_items:
         author = item.get("author") or {}
         author_slug = (author.get("publicIdentifier") or "").lower()
         fallback = (slug_to_followers or {}).get(author_slug)
         post = await _item_to_post(item, job, fallback_followers=fallback)
+        if post.post_url:
+            existing = (await db.execute(
+                select(Post.id).where(Post.post_url == post.post_url).limit(1)
+            )).scalar()
+            if existing:
+                logger.debug(f"Skipping duplicate post_url: {post.post_url}")
+                continue
         db.add(post)
         created_posts.append(post)
 

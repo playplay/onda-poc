@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     JWT_SECRET: str = ""
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
     USERS: str = "[]"
+    CRON_SECRET: str = ""
 
     @property
     def user_list(self) -> list[dict]:

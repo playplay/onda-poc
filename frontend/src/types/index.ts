@@ -2,6 +2,7 @@ export interface ScrapeRequest {
   sector?: string | null;
   posts_per_account?: number;
   by_date?: boolean;
+  since_date?: string | null;
 }
 
 export interface CustomSearchCreate {

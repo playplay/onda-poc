@@ -16,6 +16,7 @@ export default function ScrapeForm({ onJobCreated }: ScrapeFormProps) {
   const [selectedSector, setSelectedSector] = useState<string>("__all__");
   const [postsPerAccount, setPostsPerAccount] = useState(3);
   const [byDate, setByDate] = useState(false);
+  const [sinceDate, setSinceDate] = useState<string>("");
 
   useEffect(() => {
     getSectors(true).then(setSectors);
@@ -32,6 +33,7 @@ export default function ScrapeForm({ onJobCreated }: ScrapeFormProps) {
         sector: selectedSector === "__all__" ? null : selectedSector,
         posts_per_account: postsPerAccount,
         by_date: byDate,
+        since_date: sinceDate || null,
       });
       if (onJobCreated) {
         onJobCreated(job.id);
@@ -88,34 +90,54 @@ export default function ScrapeForm({ onJobCreated }: ScrapeFormProps) {
           )}
         </div>
 
-        <div className="flex gap-4">
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-600 mb-1">
-              Posts per account
-            </label>
-            <select
-              value={postsPerAccount}
-              onChange={(e) => setPostsPerAccount(Number(e.target.value))}
-              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
-            >
-              {POSTS_OPTIONS.map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex items-end pb-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={byDate}
-                onChange={(e) => setByDate(e.target.checked)}
-                className="rounded border-gray-300 text-violet-600 focus:ring-violet-500"
-              />
-              <span className="text-sm text-gray-600">By date (most recent)</span>
-            </label>
-          </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">
+            Since date{" "}
+            <span className="font-normal text-gray-400">(optional — exhaustive weekly mode)</span>
+          </label>
+          <input
+            type="date"
+            value={sinceDate}
+            onChange={(e) => setSinceDate(e.target.value)}
+            className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+          />
+          {sinceDate && (
+            <p className="mt-1 text-xs text-violet-600">
+              Exhaustive mode: 30 posts/account, by date, duplicates skipped automatically.
+            </p>
+          )}
         </div>
+
+        {!sinceDate && (
+          <div className="flex gap-4">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-600 mb-1">
+                Posts per account
+              </label>
+              <select
+                value={postsPerAccount}
+                onChange={(e) => setPostsPerAccount(Number(e.target.value))}
+                className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+              >
+                {POSTS_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-end pb-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={byDate}
+                  onChange={(e) => setByDate(e.target.checked)}
+                  className="rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                />
+                <span className="text-sm text-gray-600">By date (most recent)</span>
+              </label>
+            </div>
+          </div>
+        )}
 
         <button
           type="submit"

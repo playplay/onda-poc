@@ -282,6 +282,16 @@ async def fetch_and_process_results(
     cutoff: datetime | None = None
     if job.scrape_date_since_months:
         cutoff = datetime.now(timezone.utc) - relativedelta(months=job.scrape_date_since_months)
+    if job.scrape_since_date:
+        from datetime import date as date_type
+        cutoff_since = datetime(
+            job.scrape_since_date.year,
+            job.scrape_since_date.month,
+            job.scrape_since_date.day,
+            tzinfo=timezone.utc,
+        )
+        if cutoff is None or cutoff_since > cutoff:
+            cutoff = cutoff_since
 
     items = [
         item for item in items
@@ -332,7 +342,7 @@ async def fetch_and_process_results(
             f"({len(items_by_user)} companies) — check _fetch_results logs"
         )
 
-    # Map to Post models
+    # Map to Post models, skipping posts already in DB (dedup by post_url)
     created_posts: list[Post] = []
     for item in top_items:
         post = await _item_to_post(item, job)
@@ -340,6 +350,13 @@ async def fetch_and_process_results(
         if not post.sector:
             slug = unquote(item.get("user_id", ""))
             post.sector = slug_to_sector.get(slug)
+        if post.post_url:
+            existing = (await db.execute(
+                select(Post.id).where(Post.post_url == post.post_url).limit(1)
+            )).scalar()
+            if existing:
+                logger.debug(f"Skipping duplicate post_url: {post.post_url}")
+                continue
         db.add(post)
         created_posts.append(post)
 
