@@ -8,6 +8,8 @@ import AdminPage from "./pages/AdminPage";
 import LoginPage from "./pages/LoginPage";
 import LibraryPage from "./pages/LibraryPage";
 import AccountsPage from "./pages/AccountsPage";
+import ScrapeHistoryPage from "./pages/ScrapeHistoryPage";
+import ScrapeHistoryDetailPage from "./pages/ScrapeHistoryDetailPage";
 import AppSidebar from "./components/AppSidebar";
 
 const IN_PROGRESS_STATUSES = ["pending", "running", "downloading_videos"];
@@ -133,8 +135,10 @@ export default function App() {
       </header>
 
       <div className="max-w-[1400px] mx-auto flex">
-        {/* Sidebar — shown on library and accounts pages */}
-        {(pathname === "/library" || pathname === "/accounts") && <AppSidebar />}
+        {/* Sidebar — shown on library, accounts, and scrape-history pages */}
+        {(pathname === "/library" || pathname === "/accounts" || pathname.startsWith("/scrape-history")) && (
+          <AppSidebar isAdmin={isAdmin} />
+        )}
 
         {/* Main content */}
         <div className="flex-1 min-w-0 px-6 py-8">
@@ -143,6 +147,8 @@ export default function App() {
             <Route path="/library" element={<LibraryPage userRole={user.role} />} />
             <Route path="/accounts" element={<AccountsPage userRole={user.role} userEmail={user.email} />} />
             <Route path="/admin" element={isAdmin ? <AdminPage userEmail={user.email} /> : <Navigate to="/library" replace />} />
+            <Route path="/scrape-history" element={isAdmin ? <ScrapeHistoryPage /> : <Navigate to="/library" replace />} />
+            <Route path="/scrape-history/:jobId" element={isAdmin ? <ScrapeHistoryDetailPage /> : <Navigate to="/library" replace />} />
             <Route path="*" element={<Navigate to="/library" replace />} />
           </Routes>
         </div>

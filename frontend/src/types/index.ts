@@ -97,6 +97,7 @@ export interface ScrapeJob {
   user_email?: string | null;
   custom_account_type?: string | null;
   date_since_months?: number | null;
+  scraper_backend?: string | null;
 }
 
 export interface Post {

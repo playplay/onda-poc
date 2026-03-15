@@ -1,6 +1,6 @@
 import { useNavigate, useLocation } from "react-router-dom";
 
-export default function AppSidebar() {
+export default function AppSidebar({ isAdmin }: { isAdmin?: boolean }) {
   const navigate = useNavigate();
   const { pathname, search } = useLocation();
   const searchParams = new URLSearchParams(search);
@@ -65,6 +65,26 @@ export default function AppSidebar() {
           Custom Search
         </button>
       </div>
+
+      {/* Admin section */}
+      {isAdmin && (
+        <>
+          <div className="mx-2 border-t border-gray-100 my-1" />
+          <div className="space-y-0.5 px-2">
+            <button
+              onClick={() => navigate("/scrape-history")}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                pathname.startsWith("/scrape-history") ? "bg-violet-50 text-violet-700" : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Scrape History
+            </button>
+          </div>
+        </>
+      )}
     </aside>
   );
 }
