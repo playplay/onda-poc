@@ -340,6 +340,30 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
         job.status = "completed"
         job.completed_at = datetime.utcnow()
 
+        # Classify use cases with Claude (Haiku) before committing
+        if all_posts:
+            try:
+                from app.services.use_case_classifier import classify_posts
+                posts_for_classification = [
+                    {
+                        "id": str(p.id),
+                        "title": p.title,
+                        "author_name": p.author_name,
+                        "author_company": p.author_company,
+                        "format_family": p.format_family,
+                        "sector": p.sector,
+                    }
+                    for p in all_posts
+                ]
+                use_case_map = await classify_posts(posts_for_classification)
+                for p in all_posts:
+                    uc = use_case_map.get(str(p.id))
+                    if uc:
+                        p.claude_use_case = uc
+                logger.info(f"Use case classification done: {len(use_case_map)}/{len(all_posts)} posts classified")
+            except Exception as uc_err:
+                logger.warning(f"Use case classification failed (non-blocking): {uc_err}")
+
         # Generate trend snapshots for the completed job
         try:
             from app.services.trend_snapshot import generate_trend_snapshot
