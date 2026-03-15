@@ -375,13 +375,6 @@ async def _orchestrate_check(db: AsyncSession, job: ScrapeJob) -> None:
             except Exception as uc_err:
                 logger.warning(f"Use case classification failed (non-blocking): {uc_err}")
 
-        # Generate trend snapshots for the completed job
-        try:
-            from app.services.trend_snapshot import generate_trend_snapshot
-            await generate_trend_snapshot(db, job)
-        except Exception as snap_err:
-            logger.warning(f"Failed to generate trend snapshot: {snap_err}")
-
     except Exception as e:
         job.status = "failed"
         job.error_message = str(e)[:1000]

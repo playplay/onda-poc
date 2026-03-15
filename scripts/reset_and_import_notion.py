@@ -237,8 +237,6 @@ async def reset_and_import():
         print(f"  Deleted collections: {r}")
         r = await conn.execute("DELETE FROM posts")
         print(f"  Deleted posts: {r}")
-        r = await conn.execute("DELETE FROM trend_snapshots")
-        print(f"  Deleted trend_snapshots: {r}")
         r = await conn.execute("DELETE FROM scrape_jobs")
         print(f"  Deleted scrape_jobs: {r}")
         r = await conn.execute("DELETE FROM watched_accounts")

@@ -11,7 +11,6 @@ from sqlalchemy import text
 from app.config import settings
 from app.db import engine, Base
 from app.routers import scrape, posts, analysis, trend_summary, accounts, auth, use_cases, library, home, collections, custom_search, favorites, cron
-import app.models.trend_snapshot  # noqa: F401 — register model for create_all
 import app.models.collection  # noqa: F401 — register model for create_all
 import app.models.favorite  # noqa: F401 — register model for create_all
 
